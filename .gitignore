@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+out/
+
+# Local data
+data/
+*.db
+settings.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Env
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor
+.idea/
+.vscode/
+
+# Built binaries
+*.exe
+*.dmg
+*.AppImage
+*.blockmap
+*.asar
+
+# Cache
+*.tsbuildinfo
+.cache/
+
+# test images
+images
+images/*
