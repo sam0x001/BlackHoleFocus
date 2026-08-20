@@ -5,16 +5,19 @@ const fs = require('fs')
 let mainWindow
 const isDev = !app.isPackaged
 
-function projectRoot() {
-  // Always the folder that contains package.json / the project
-  if (isDev) {
-    return path.join(__dirname, '..')
-  }
-  return path.dirname(app.getPath('exe'))
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function dataDir() {
-  const dir = path.join(projectRoot(), 'data')
+  // Dev: project/data
+  // Production: %APPDATA%\BlackHoleFocus\data (writable)
+  let dir
+  if (isDev) {
+    dir = path.join(__dirname, '..', 'data')
+  } else {
+    dir = path.join(app.getPath('userData'), 'data')
+  }
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
   }
@@ -25,13 +28,12 @@ function filePath(name) {
   return path.join(dataDir(), name)
 }
 
-// ---------- JSON helpers ----------
+// ---------- Atomic JSON writes ----------
 function readJSON(name, fallback) {
   const p = filePath(name)
   try {
     if (fs.existsSync(p)) {
-      const raw = fs.readFileSync(p, 'utf8')
-      return JSON.parse(raw)
+      return JSON.parse(fs.readFileSync(p, 'utf8'))
     }
   } catch (e) {
     console.error('readJSON error', name, e)
@@ -41,38 +43,121 @@ function readJSON(name, fallback) {
 
 function writeJSON(name, data) {
   const p = filePath(name)
-  fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8')
+  const tmp = p + '.tmp'
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
+    // On Windows, rename over existing file works; if not, unlink then rename
+    try {
+      fs.renameSync(tmp, p)
+    } catch {
+      if (fs.existsSync(p)) fs.unlinkSync(p)
+      fs.renameSync(tmp, p)
+    }
+  } catch (e) {
+    console.error('writeJSON error', name, e)
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp) } catch {}
+    throw e
+  }
   return true
 }
 
+// ---------- Append-only sessions (NDJSON) ----------
+const SESSIONS_NDJSON = 'sessions.ndjson'
+let sessionsCache = null // in-memory, newest-first
+
+function migrateSessionsJsonIfNeeded() {
+  const jsonPath = filePath('sessions.json')
+  const ndPath = filePath(SESSIONS_NDJSON)
+  if (!fs.existsSync(jsonPath)) return
+  if (fs.existsSync(ndPath) && fs.statSync(ndPath).size > 0) return
+  try {
+    const list = readJSON('sessions.json', [])
+    if (!Array.isArray(list) || list.length === 0) return
+    // Write oldest first so file order is chronological; we reverse when loading
+    const chronological = [...list].reverse()
+    const body = chronological.map(s => JSON.stringify(s)).join('\n') + '\n'
+    const tmp = ndPath + '.tmp'
+    fs.writeFileSync(tmp, body, 'utf8')
+    try {
+      fs.renameSync(tmp, ndPath)
+    } catch {
+      if (fs.existsSync(ndPath)) fs.unlinkSync(ndPath)
+      fs.renameSync(tmp, ndPath)
+    }
+    console.log('[BlackHole] Migrated sessions.json → sessions.ndjson:', list.length)
+  } catch (e) {
+    console.error('Session migration failed:', e)
+  }
+}
+
+function loadSessionsFromDisk() {
+  migrateSessionsJsonIfNeeded()
+  const p = filePath(SESSIONS_NDJSON)
+  if (!fs.existsSync(p)) {
+    sessionsCache = []
+    return sessionsCache
+  }
+  try {
+    const raw = fs.readFileSync(p, 'utf8')
+    const list = []
+    for (const line of raw.split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        list.push(JSON.parse(t))
+      } catch (e) {
+        console.warn('Skip bad session line:', t.slice(0, 80))
+      }
+    }
+    // newest first
+    list.reverse()
+    sessionsCache = list
+    return sessionsCache
+  } catch (e) {
+    console.error('loadSessionsFromDisk error:', e)
+    sessionsCache = []
+    return sessionsCache
+  }
+}
+
+function getSessions() {
+  if (sessionsCache) return sessionsCache
+  return loadSessionsFromDisk()
+}
+
+function appendSession(session) {
+  const p = filePath(SESSIONS_NDJSON)
+  fs.appendFileSync(p, JSON.stringify(session) + '\n', 'utf8')
+  if (!sessionsCache) sessionsCache = []
+  sessionsCache.unshift(session)
+}
+
 // ---------- Defaults ----------
-const defaultCategories = [
-  { id: '1', name: 'Programming', color: '#3b82f6' },
-  { id: '2', name: 'Learning', color: '#a855f7' },
-  { id: '3', name: 'Building', color: '#22c55e' },
-  { id: '4', name: 'Research', color: '#f59e0b' },
-  { id: '5', name: 'Social Media', color: '#ef4444' },
-]
+const defaultCategories = []
 
 const defaultSettings = {
   theme: 'void',
   backgrounds: { void: null, pulse: null, neon: null },
   timerMode: 'stopwatch',
   countdownTarget: 25 * 60,
-  sidebarOpen: true
+  sidebarOpen: true,
+  activeSession: null
 }
 
 function ensureDataFiles() {
   dataDir()
-  if (!fs.existsSync(filePath('sessions.json'))) writeJSON('sessions.json', [])
-  if (!fs.existsSync(filePath('categories.json'))) writeJSON('categories.json', defaultCategories)
+  migrateSessionsJsonIfNeeded()
+  if (!fs.existsSync(filePath(SESSIONS_NDJSON))) {
+    fs.writeFileSync(filePath(SESSIONS_NDJSON), '', 'utf8')
+  }
+  if (!fs.existsSync(filePath('categories.json'))) writeJSON('categories.json', [])
   if (!fs.existsSync(filePath('tasks.json'))) writeJSON('tasks.json', [])
   if (!fs.existsSync(filePath('settings.json'))) writeJSON('settings.json', defaultSettings)
+  loadSessionsFromDisk()
 }
 
 // ---------- Window ----------
 function createWindow() {
-  // Icon: try build/, public/, and packaged resources
   const iconCandidates = [
     path.join(__dirname, '..', 'build', 'icon.ico'),
     path.join(__dirname, '..', 'public', 'icon.ico'),
@@ -99,7 +184,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     },
     show: false
   })
@@ -141,47 +226,46 @@ ipcMain.handle('settings:set', (_e, data) => {
 ipcMain.handle('db:path', () => dataDir())
 
 ipcMain.handle('db:getSessions', () => {
-  return readJSON('sessions.json', [])
+  return getSessions()
 })
 
 ipcMain.handle('db:addSession', (_e, session) => {
-  const list = readJSON('sessions.json', [])
-  list.unshift(session) // newest first
-  writeJSON('sessions.json', list)
+  appendSession(session)
   return true
 })
 
 ipcMain.handle('db:getTodayTotal', () => {
-  const today = new Date().toISOString().slice(0, 10)
-  const list = readJSON('sessions.json', [])
-  return list.filter(s => s.date === today).reduce((sum, s) => sum + (s.duration || 0), 0)
+  const today = localDateStr()
+  return getSessions()
+    .filter(s => s.date === today)
+    .reduce((sum, s) => sum + (s.duration || 0), 0)
 })
 
 ipcMain.handle('db:getTodayByCategory', () => {
-  const today = new Date().toISOString().slice(0, 10)
-  const list = readJSON('sessions.json', [])
+  const today = localDateStr()
   const map = {}
-  list.filter(s => s.date === today).forEach(s => {
-    map[s.category] = (map[s.category] || 0) + (s.duration || 0)
-  })
+  getSessions()
+    .filter(s => s.date === today)
+    .forEach(s => {
+      map[s.category] = (map[s.category] || 0) + (s.duration || 0)
+    })
   return map
 })
 
 // ---------- IPC: Categories ----------
 ipcMain.handle('db:getCategories', () => {
-  const list = readJSON('categories.json', defaultCategories)
-  return list.length ? list : defaultCategories
+  return readJSON('categories.json', [])
 })
 
 ipcMain.handle('db:addCategory', (_e, cat) => {
-  const list = readJSON('categories.json', defaultCategories)
+  const list = readJSON('categories.json', [])
   list.push(cat)
   writeJSON('categories.json', list)
   return true
 })
 
 ipcMain.handle('db:removeCategory', (_e, id) => {
-  let list = readJSON('categories.json', defaultCategories)
+  let list = readJSON('categories.json', [])
   list = list.filter(c => c.id !== id)
   writeJSON('categories.json', list)
   return true
@@ -216,15 +300,15 @@ ipcMain.handle('db:removeTask', (_e, id) => {
 
 // ---------- Excel ----------
 ipcMain.handle('save-excel', async (_e, buffer, defaultName) => {
-  const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+  const { filePath: savePath, canceled } = await dialog.showSaveDialog(mainWindow, {
     title: 'Save Excel Report',
     defaultPath: defaultName || 'focus-report.xlsx',
     filters: [{ name: 'Excel', extensions: ['xlsx'] }]
   })
-  if (canceled || !filePath) return { success: false }
+  if (canceled || !savePath) return { success: false }
   try {
-    fs.writeFileSync(filePath, Buffer.from(buffer))
-    return { success: true, path: filePath }
+    fs.writeFileSync(savePath, Buffer.from(buffer))
+    return { success: true, path: savePath }
   } catch (err) {
     return { success: false, error: err.message }
   }

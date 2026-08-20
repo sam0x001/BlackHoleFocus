@@ -2,7 +2,7 @@
   <img src="build/icon.ico" alt="BlackHole Focus" width="128" height="128" />
 </p>
 
-<h1 align="center">BlackHole Focus</h1>
+<h1 align="center">BlackHole Focus <i>V1.1</i></h1>
 
 <p align="center">
   Personal focus tracker for Windows<br/>
@@ -24,19 +24,24 @@
 
 All data stays on your machine. No account. No server.
 
+> Important Note: Make sure you've a backup of data folder before install any update. You can find the data folder's path on settings.
+
 ---
 
 ## Features
 
 - **Stopwatch** — counts up until you end the session  
 - **Countdown** — presets (15 / 25 / 45 / 60 min) or custom minutes; beeps at zero  
-- **Categories** — default set included; add or remove in Settings  
+- **Categories** — Add or remove categories in settings with arbitrary color
 - **Tasks** — add, complete, delete during Focus Mode  
 - **Themes** — Void, Pulse, Neon (optional background image per theme)  
-- **Analytics** — sessions grouped by day  
-- **Excel export** — date, category, duration  
+- **Analytics** — sessions grouped by day
+- **Excel export** — date, category, duration. Included 2 modes: Daily Sumary & Detailed Sessions 
 - **Collapsible sidebar**  
 - **Local persistence** — JSON files on disk via Electron  
+- **Range Statics** — Total focused time, Mean/day, Std deviation, Variance
+- **History** — Check sessions within a specific date range
+- **Chart** — Provides a chart of focus time in the current month
 
 ---
 
@@ -57,6 +62,7 @@ blackhole-focus/
 │   ├── App.tsx
 │   ├── main.tsx
 │   └── index.css
+├── images/                # Optional assets
 ├── index.html
 ├── package.json
 ├── vite.config.ts
@@ -183,7 +189,7 @@ Windows may show SmartScreen for unsigned apps → *More info* → *Run anyway*.
 | Problem | What to try |
 |---------|-------------|
 | Data not saving | Use Electron window (`npm run dev`), not browser-only |
-| Icon missing on exe | Valid `build/icon.ico`, delete `dist-electron`, rebuild |
+| Icon missing on exe | Valid `build/icon.ico` (256*256), delete `dist-electron`, rebuild |
 | Stuck on Loading | Reinstall deps: delete `node_modules`, run `npm install` |
 | Setup has no data after install | Fully install; data goes under `%APPDATA%\BlackHoleFocus\data\` |
 

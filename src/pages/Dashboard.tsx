@@ -5,7 +5,8 @@ function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  if (m > 0) return `${m}m`
+  return `${seconds}s`
 }
 
 export default function Dashboard() {
@@ -19,17 +20,14 @@ export default function Dashboard() {
     timerMode,
     setTimerMode,
     countdownTarget,
-    setCountdownTarget
+    setCountdownTarget,
+    setView
   } = useStore()
 
   const [customMinutes, setCustomMinutes] = useState(String(Math.floor(countdownTarget / 60)))
-
   const totalAll = Object.values(todayByCategory).reduce((a, b) => a + b, 0) || 1
-
   const todayLabel = new Date().toLocaleDateString('en-US', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
+    day: 'numeric', month: 'long', year: 'numeric'
   })
 
   const presetTimes = [
@@ -41,9 +39,7 @@ export default function Dashboard() {
 
   const applyCustomMinutes = () => {
     const mins = parseInt(customMinutes, 10)
-    if (!isNaN(mins) && mins > 0 && mins <= 600) {
-      setCountdownTarget(mins * 60)
-    }
+    if (!isNaN(mins) && mins > 0 && mins <= 600) setCountdownTarget(mins * 60)
   }
 
   return (
@@ -51,12 +47,11 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col items-center justify-center relative px-8">
         <div className="absolute top-8 left-8">
           <p className="text-white/40 text-sm mb-1">Today</p>
-          <h2 className="text-3xl font-display font-bold tracking-tight">{todayLabel}</h2>
+          <h2 className="text-3xl font-semibold tracking-tight">{todayLabel}</h2>
         </div>
-
         <div className="text-center">
           <p className="text-white/45 text-sm mb-2 tracking-wide">Focused today</p>
-          <p className="text-5xl font-display font-semibold tracking-tight">
+          <p className="text-5xl font-semibold tracking-tight tabular-nums">
             {formatDuration(todayTotal)}
           </p>
         </div>
@@ -66,28 +61,20 @@ export default function Dashboard() {
         <div className="glass-strong rounded-2xl p-5">
           <h3 className="text-sm text-white/50 mb-3 tracking-wide">Timer Mode</h3>
           <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setTimerMode('stopwatch')}
-              className={`flex-1 py-2 rounded-xl text-sm transition-all ${
-                timerMode === 'stopwatch'
-                  ? 'bg-white/15 text-white border border-white/20'
-                  : 'bg-white/5 text-white/45 hover:bg-white/10'
-              }`}
-            >
-              Stopwatch
-            </button>
-            <button
-              onClick={() => setTimerMode('countdown')}
-              className={`flex-1 py-2 rounded-xl text-sm transition-all ${
-                timerMode === 'countdown'
-                  ? 'bg-white/15 text-white border border-white/20'
-                  : 'bg-white/5 text-white/45 hover:bg-white/10'
-              }`}
-            >
-              Countdown
-            </button>
+            {(['stopwatch', 'countdown'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setTimerMode(mode)}
+                className={`flex-1 py-2 rounded-xl text-sm capitalize transition-all ${
+                  timerMode === mode
+                    ? 'bg-white/15 text-white border border-white/20'
+                    : 'bg-white/5 text-white/45 hover:bg-white/10'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
           </div>
-
           {timerMode === 'countdown' && (
             <div className="space-y-3">
               <div className="flex gap-2">
@@ -98,7 +85,7 @@ export default function Dashboard() {
                       setCountdownTarget(p.sec)
                       setCustomMinutes(String(p.sec / 60))
                     }}
-                    className={`flex-1 py-1.5 rounded-lg text-xs transition-all ${
+                    className={`flex-1 py-1.5 rounded-lg text-xs ${
                       countdownTarget === p.sec
                         ? 'bg-white/15 text-white border border-white/20'
                         : 'bg-white/5 text-white/40 hover:bg-white/10'
@@ -118,36 +105,40 @@ export default function Dashboard() {
                   onBlur={applyCustomMinutes}
                   onKeyDown={e => e.key === 'Enter' && applyCustomMinutes()}
                   className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-white/25 text-center"
-                  placeholder="Minutes"
                 />
                 <span className="text-xs text-white/40 shrink-0">min</span>
-                <button onClick={applyCustomMinutes} className="glass-button text-xs py-2 px-3">
-                  Set
-                </button>
+                <button onClick={applyCustomMinutes} className="glass-button text-xs py-2 px-3">Set</button>
               </div>
-              <p className="text-[11px] text-white/30 text-center">
-                Current: {Math.floor(countdownTarget / 60)}m
-              </p>
             </div>
           )}
         </div>
 
         <div className="glass-strong rounded-2xl p-5">
           <h3 className="text-sm text-white/50 mb-3 tracking-wide">Start Focus Session</h3>
-          <div className="space-y-2">
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => startFocus(cat.name)}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all text-left"
-              >
-                <span className="text-sm text-white/85 truncate">{cat.name}</span>
-                <span className="text-xs text-white/30 shrink-0 ml-2">
-                  {timerMode === 'countdown' ? `${Math.floor(countdownTarget / 60)}m` : 'Start'}
-                </span>
+          {categories.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="text-white/40 text-sm mb-3">No categories yet</p>
+              <button onClick={() => setView('settings')} className="glass-button text-xs">
+                Add categories in Settings
               </button>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => startFocus(cat.name)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all text-left"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                  <span className="text-sm text-white/85 flex-1 truncate">{cat.name}</span>
+                  <span className="text-xs text-white/30 shrink-0">
+                    {timerMode === 'countdown' ? `${Math.floor(countdownTarget / 60)}m` : 'Start'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="glass-strong rounded-2xl p-5">

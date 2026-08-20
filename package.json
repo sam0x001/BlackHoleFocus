@@ -1,6 +1,6 @@
 {
-  "name": "blackhole-focus",
-  "version": "1.0.0",
+  "name": "BlackHoleFocus",
+  "version": "1.1.0",
   "description": "Personal Focus Tracker",
   "main": "electron/main.js",
   "scripts": {

@@ -22,20 +22,18 @@ export default function Sidebar() {
     neon: 'bg-blue-400/15 text-blue-200 border-blue-400/25',
   }[theme]
 
+  if (!sidebarOpen) return null
+
   return (
-    <aside
-      className={`h-full flex flex-col glass border-r border-white/10 z-20 relative transition-all duration-300 ease-in-out overflow-hidden
-        ${sidebarOpen ? 'w-52 opacity-100' : 'w-0 opacity-0 border-0'}`}
-    >
-      <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between min-w-[208px]">
+    <aside className="h-full w-52 shrink-0 flex flex-col glass border-r border-white/10 z-20 relative overflow-hidden">
+      <div className="p-5 border-b border-white/10 flex items-center justify-between min-w-[208px]">
         <div>
           <h1 className="font-display font-semibold text-sm tracking-wider">BLACKHOLE</h1>
           <p className="text-[10px] text-white/35 tracking-[0.2em] mt-0.5">FOCUS</p>
         </div>
         <button
           onClick={toggleSidebar}
-          className="no-drag text-white/30 hover:text-white/70 text-xs px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
-          title="Hide sidebar"
+          className="no-drag text-white/30 hover:text-white/70 text-xs px-2 py-1 rounded-lg hover:bg-white/5"
         >
           Hide
         </button>
@@ -46,7 +44,7 @@ export default function Sidebar() {
           <button
             key={item.id}
             onClick={() => setView(item.id)}
-            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 no-drag
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-300 ease-in-out no-drag
               ${currentView === item.id
                 ? `${activeStyle} border`
                 : 'text-white/55 hover:bg-white/5 hover:text-white/90'
@@ -64,7 +62,7 @@ export default function Sidebar() {
             <button
               key={t}
               onClick={() => setTheme(t)}
-              className={`flex-1 h-8 rounded-lg text-[10px] font-medium tracking-wide transition-all no-drag
+              className={`flex-1 h-8 rounded-lg text-[10px] font-medium tracking-wide transition-all duration-300 ease-in-out no-drag
                 ${theme === t
                   ? 'bg-white/15 text-white border border-white/20'
                   : 'bg-white/5 text-white/40 hover:bg-white/10'

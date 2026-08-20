@@ -2,84 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
+  background: #050508;
+  color: #f4f4f5;
 }
 
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
 @layer components {
-  /* Modern frosted glass */
   .glass {
     background: rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
-
   .glass-strong {
     background: rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
-
   .glass-button {
-    background: rgba(255, 255, 255, 0.07);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    @apply px-4 py-2 rounded-xl text-sm transition-all duration-200;
+    background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    padding: 0.6rem 1.25rem;
-    transition: all 0.25s ease;
-    color: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(16px);
   }
-
   .glass-button:hover {
     background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.22);
-    transform: translateY(-1px);
-  }
-
-  .glass-button:active {
-    transform: translateY(0);
+    border-color: rgba(255, 255, 255, 0.2);
   }
 }
 
-/* Electron window drag region */
 .titlebar-drag {
   -webkit-app-region: drag;
   app-region: drag;
 }
-
-.no-drag,
-button,
-input,
-a,
-select,
-textarea {
+.no-drag, button, input, a, select, textarea {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+.font-display {
+  font-family: 'Orbitron', 'Inter', system-ui, sans-serif;
+}
+
+/* Dark theme for native HTML inputs */
+::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.7);
+}
+input[type="date"],
+input[type="color"],
+input[type="number"] {
+  color-scheme: dark;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(1) brightness(0.6);
+}
+
+/* Calendar dropdown grid */
+.calendar-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.calendar-day:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+.calendar-day.selected {
+  background: rgba(56, 189, 248, 0.3);
+  color: white;
+  font-weight: 600;
+}
+.calendar-day.today:not(.selected) {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.calendar-day.disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.calendar-day:not(.disabled) {
+  color: rgba(255, 255, 255, 0.85);
+}
+.calendar-weekday {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 1.5rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+
+/* Smooth theme / panel transitions */
+main, aside {
+  transition: opacity 0.35s ease, background-color 0.5s ease;
+}
+.glass, .glass-strong, .glass-button {
+  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease;
 }

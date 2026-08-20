@@ -10,53 +10,47 @@ function formatTime(seconds: number) {
 
 export default function FocusMode() {
   const {
-    isFocusing,
-    currentCategory,
-    elapsedSeconds,
-    remainingSeconds,
-    timerMode,
-    pauseFocus,
-    resumeFocus,
-    stopFocus,
-    startFocus,
-    categories,
-    tasks,
-    addTask,
-    toggleTask,
-    removeTask,
-    theme
+    isFocusing, currentCategory, elapsedSeconds, remainingSeconds, timerMode,
+    pauseFocus, resumeFocus, stopFocus, startFocus, categories, tasks,
+    addTask, toggleTask, removeTask, theme, setView
   } = useStore()
 
   const [newTask, setNewTask] = useState('')
-
   const handleAddTask = () => {
     if (newTask.trim()) {
       addTask(newTask.trim())
       setNewTask('')
     }
   }
-
   const displayTime = timerMode === 'countdown' ? remainingSeconds : elapsedSeconds
 
   if (!currentCategory) {
     return (
-      <div className="h-full w-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          <h2 className="text-xl font-display text-white/70 tracking-wide">
-            Select a category
-          </h2>
-          <div className="flex flex-wrap justify-center gap-3 max-w-lg">
+      <div className="h-full w-full flex flex-col items-center justify-center gap-8">
+        <h2 className="text-xl text-white/70 tracking-wide text-center">Select a category</h2>
+        {categories.length === 0 ? (
+          <div className="glass-strong rounded-2xl px-10 py-8 text-center max-w-sm">
+            <p className="text-white/45 text-sm mb-4">
+              No categories yet. Add one from Settings first.
+            </p>
+            <button onClick={() => setView('settings')} className="glass-button">
+              Open Settings
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
             {categories.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => startFocus(cat.name)}
-                className="glass-strong rounded-2xl px-8 py-4 text-sm hover:bg-white/10 transition-all"
+                className="glass-strong rounded-2xl px-10 py-5 text-sm hover:bg-white/10 transition-all flex items-center gap-2 justify-center"
               >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
                 {cat.name}
               </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
     )
   }
@@ -64,15 +58,12 @@ export default function FocusMode() {
   return (
     <div className="h-full flex">
       <div className="flex-1 flex flex-col items-center justify-center">
-        <p className="text-white/40 text-sm mb-1 tracking-[0.2em] uppercase text-center">
-          {currentCategory}
-        </p>
+        <p className="text-white/40 text-sm mb-1 tracking-[0.2em] uppercase text-center">{currentCategory}</p>
         <p className="text-white/25 text-xs mb-4 tracking-wide text-center">
           {timerMode === 'countdown' ? 'COUNTDOWN' : 'STOPWATCH'}
         </p>
-
         <div
-          className="text-7xl font-display font-bold tracking-tighter tabular-nums mb-10"
+          className="text-7xl font-semibold tracking-tighter tabular-nums mb-10"
           style={{
             textShadow: theme === 'void'
               ? '0 0 50px rgba(56,189,248,0.35)'
@@ -83,16 +74,11 @@ export default function FocusMode() {
         >
           {formatTime(displayTime)}
         </div>
-
         <div className="flex gap-3">
           {isFocusing ? (
-            <button onClick={pauseFocus} className="glass-button text-sm min-w-[110px]">
-              Pause
-            </button>
+            <button onClick={pauseFocus} className="glass-button text-sm min-w-[110px]">Pause</button>
           ) : (
-            <button onClick={resumeFocus} className="glass-button text-sm min-w-[110px]">
-              Resume
-            </button>
+            <button onClick={resumeFocus} className="glass-button text-sm min-w-[110px]">Resume</button>
           )}
           <button onClick={stopFocus} className="glass-button text-sm text-red-300/70 hover:text-red-300 min-w-[110px]">
             End Session
@@ -103,7 +89,6 @@ export default function FocusMode() {
       <div className="w-80 p-6 flex flex-col">
         <div className="glass-strong rounded-2xl flex-1 flex flex-col p-5 min-h-0">
           <h3 className="text-sm text-white/50 mb-4 tracking-wide">Tasks</h3>
-
           <div className="flex items-center gap-2 mb-4">
             <input
               value={newTask}
@@ -114,29 +99,22 @@ export default function FocusMode() {
             />
             <button
               onClick={handleAddTask}
-              className="shrink-0 w-10 h-10 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-center text-lg leading-none"
+              className="shrink-0 w-10 h-10 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-center text-lg"
             >
               +
             </button>
           </div>
-
           <div className="flex-1 overflow-y-auto space-y-2">
             {tasks.map(task => (
               <div
                 key={task.id}
                 className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all
-                  ${task.done
-                    ? 'bg-white/[0.03] border-white/5 opacity-50'
-                    : 'bg-white/5 border-white/10 hover:bg-white/[0.07] hover:border-white/15'
-                  }`}
+                  ${task.done ? 'bg-white/[0.03] border-white/5 opacity-50' : 'bg-white/5 border-white/10'}`}
               >
                 <button
                   onClick={() => toggleTask(task.id)}
                   className={`w-5 h-5 rounded-md border flex items-center justify-center text-[11px] shrink-0
-                    ${task.done
-                      ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-300'
-                      : 'border-white/25 hover:border-white/40'
-                    }`}
+                    ${task.done ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-300' : 'border-white/25'}`}
                 >
                   {task.done && '✓'}
                 </button>
@@ -148,10 +126,7 @@ export default function FocusMode() {
                 >
                   {task.text}
                 </span>
-                <button
-                  onClick={() => removeTask(task.id)}
-                  className="text-white/25 hover:text-red-400 text-xs px-1.5 py-1 shrink-0 transition-colors"
-                >
+                <button onClick={() => removeTask(task.id)} className="text-white/25 hover:text-red-400 text-xs px-1.5 shrink-0">
                   x
                 </button>
               </div>

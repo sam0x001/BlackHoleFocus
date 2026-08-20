@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { localDateString } from '../lib/date'
 import {
   initDatabase,
   dbGetSessions,
@@ -35,10 +36,22 @@ export interface Category {
   color: string
 }
 
+export interface ActiveSession {
+  category: string
+  timerMode: TimerMode
+  countdownTarget: number
+  focusStartTime: number
+  elapsedSeconds: number
+  remainingSeconds: number
+  isPaused: boolean
+  isFocusing: boolean
+}
+
 interface AppState {
   ready: boolean
   initApp: () => Promise<void>
   persistSettings: () => Promise<void>
+  checkpointActiveSession: () => void
 
   theme: Theme
   setTheme: (theme: Theme) => void
@@ -68,7 +81,7 @@ interface AppState {
   tick: () => void
 
   categories: Category[]
-  addCategory: (name: string) => Promise<void>
+  addCategory: (name: string, color?: string) => Promise<void>
   removeCategory: (id: string) => Promise<void>
 
   sessions: Session[]
@@ -82,30 +95,75 @@ interface AppState {
   removeTask: (id: string) => Promise<void>
 }
 
-const fallbackCategories: Category[] = [
-  { id: '1', name: 'Programming', color: '#3b82f6' },
-  { id: '2', name: 'Learning', color: '#a855f7' },
-  { id: '3', name: 'Building', color: '#22c55e' },
-  { id: '4', name: 'Research', color: '#f59e0b' },
-  { id: '5', name: 'Social Media', color: '#ef4444' },
+const fallbackCategories: Category[] = []
+
+const COLOR_PALETTE = [
+  '#3b82f6', '#a855f7', '#22c55e', '#f59e0b', '#ef4444',
+  '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#8b5cf6',
 ]
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let checkpointTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useStore = create<AppState>()((set, get) => ({
   ready: false,
 
   persistSettings: async () => {
-    const s = get()
-    try {
-      await saveSettings({
-        theme: s.theme,
-        backgrounds: s.backgrounds,
-        timerMode: s.timerMode,
-        countdownTarget: s.countdownTarget,
-        sidebarOpen: s.sidebarOpen
-      })
-    } catch (e) {
-      console.warn('Could not save settings:', e)
-    }
+    if (persistTimer) clearTimeout(persistTimer)
+    return new Promise((resolve) => {
+      persistTimer = setTimeout(async () => {
+        const s = get()
+        try {
+          const prev = await loadSettings().catch(() => ({} as any))
+          await saveSettings({
+            theme: s.theme,
+            backgrounds: s.backgrounds,
+            timerMode: s.timerMode,
+            countdownTarget: s.countdownTarget,
+            sidebarOpen: s.sidebarOpen,
+            // preserve activeSession if checkpoint wrote it
+            activeSession: (prev as any).activeSession ?? null
+          })
+        } catch (e) {
+          console.warn('Could not save settings:', e)
+        }
+        resolve()
+      }, 1500)
+    })
+  },
+
+  checkpointActiveSession: () => {
+    if (checkpointTimer) clearTimeout(checkpointTimer)
+    checkpointTimer = setTimeout(async () => {
+      const s = get()
+      try {
+        const base = await loadSettings().catch(() => ({} as any))
+        let activeSession: ActiveSession | null = null
+        if (s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0) {
+          activeSession = {
+            category: s.currentCategory,
+            timerMode: s.timerMode,
+            countdownTarget: s.countdownTarget,
+            focusStartTime: s.focusStartTime || Date.now(),
+            elapsedSeconds: s.elapsedSeconds,
+            remainingSeconds: s.remainingSeconds,
+            isPaused: s.isPaused,
+            isFocusing: s.isFocusing
+          }
+        }
+        await saveSettings({
+          ...base,
+          theme: s.theme,
+          backgrounds: s.backgrounds,
+          timerMode: s.timerMode,
+          countdownTarget: s.countdownTarget,
+          sidebarOpen: s.sidebarOpen,
+          activeSession
+        })
+      } catch (e) {
+        console.warn('Checkpoint failed:', e)
+      }
+    }, 1500)
   },
 
   initApp: async () => {
@@ -128,13 +186,14 @@ export const useStore = create<AppState>()((set, get) => ({
       try {
         sessions = await dbGetSessions()
         categories = await dbGetCategories()
-        if (!categories.length) categories = fallbackCategories
         tasks = await dbGetTasks()
         todayTotal = await dbGetTodayTotal()
         todayByCategory = await dbGetTodayByCategory()
       } catch (e) {
         console.warn('DB load partial failure:', e)
       }
+
+      const active: ActiveSession | null = settings.activeSession || null
 
       set({
         ready: true,
@@ -147,8 +206,29 @@ export const useStore = create<AppState>()((set, get) => ({
         categories,
         tasks,
         todayTotal,
-        todayByCategory
+        todayByCategory,
+        // Restore interrupted session
+        ...(active && active.category && active.elapsedSeconds > 0
+          ? {
+              currentCategory: active.category,
+              timerMode: active.timerMode || settings.timerMode || 'stopwatch',
+              countdownTarget: active.countdownTarget || settings.countdownTarget || 25 * 60,
+              elapsedSeconds: active.elapsedSeconds,
+              remainingSeconds: active.remainingSeconds || 0,
+              isPaused: true,
+              isFocusing: false,
+              focusStartTime: null,
+              currentView: 'focus' as View
+            }
+          : {})
       })
+
+      // Clear checkpoint after restore so we don't double-apply
+      if (active) {
+        try {
+          await saveSettings({ ...settings, activeSession: null })
+        } catch {}
+      }
     } catch (err) {
       console.error('initApp failed:', err)
       set({ ready: true, categories: fallbackCategories })
@@ -203,9 +283,13 @@ export const useStore = create<AppState>()((set, get) => ({
       remainingSeconds: timerMode === 'countdown' ? countdownTarget : 0,
       currentView: 'focus'
     })
+    get().checkpointActiveSession()
   },
 
-  pauseFocus: () => set({ isFocusing: false, isPaused: true }),
+  pauseFocus: () => {
+    set({ isFocusing: false, isPaused: true })
+    get().checkpointActiveSession()
+  },
 
   resumeFocus: () => {
     const { elapsedSeconds, timerMode, countdownTarget, remainingSeconds } = get()
@@ -216,6 +300,7 @@ export const useStore = create<AppState>()((set, get) => ({
         ? Date.now() - elapsedSeconds * 1000
         : Date.now() - (countdownTarget - remainingSeconds) * 1000
     })
+    get().checkpointActiveSession()
   },
 
   stopFocus: async () => {
@@ -225,10 +310,9 @@ export const useStore = create<AppState>()((set, get) => ({
       : elapsedSeconds
 
     if (duration > 5 && currentCategory) {
-      const now = new Date()
       const session: Session = {
         id: crypto.randomUUID(),
-        date: now.toISOString().slice(0, 10),
+        date: localDateString(),
         category: currentCategory,
         duration,
         createdAt: Date.now()
@@ -253,6 +337,12 @@ export const useStore = create<AppState>()((set, get) => ({
       remainingSeconds: 0,
       currentView: 'dashboard'
     })
+
+    // Clear active session checkpoint
+    try {
+      const base = await loadSettings().catch(() => ({} as any))
+      await saveSettings({ ...base, activeSession: null })
+    } catch {}
   },
 
   tick: () => {
@@ -282,13 +372,19 @@ export const useStore = create<AppState>()((set, get) => ({
           setTimeout(playBeep, 450)
         } catch {}
         get().stopFocus()
+        return
       }
     }
+    // Checkpoint every tick (debounced inside)
+    get().checkpointActiveSession()
   },
 
   categories: fallbackCategories,
-  addCategory: async (name) => {
-    const cat = { id: crypto.randomUUID(), name, color: '#94a3b8' }
+  addCategory: async (name, color) => {
+    const picked =
+      color ||
+      COLOR_PALETTE[get().categories.length % COLOR_PALETTE.length]
+    const cat = { id: crypto.randomUUID(), name, color: picked }
     try {
       await dbAddCategory(cat)
       set({ categories: await dbGetCategories() })
