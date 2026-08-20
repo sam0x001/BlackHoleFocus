@@ -24,7 +24,7 @@
 
 All data stays on your machine. No account. No server.
 
-> Important Note: Make sure you've a backup of data folder before install any update. You can find the data folder's path on settings.
+**Important Note: Make sure you've a backup of data folder before install any update. You can find the data folder's path on settings.**
 
 ---
 
