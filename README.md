@@ -98,7 +98,7 @@ npm -v
 ## Install & run (development)
 
 ```bash
-git clone https://github.com/sam0x001/BlackHoleFoucs
+git clone https://github.com/sam0x001/BlackHoleFocus
 cd BlackHoleFocus
 npm install
 npm run dev
