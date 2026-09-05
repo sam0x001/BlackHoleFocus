@@ -33,6 +33,7 @@ ehthumbs.db
 # Editor
 .idea/
 .vscode/
+.freebuff/
 *.swp
 *.swo
 *~

@@ -52,6 +52,7 @@ interface AppState {
   initApp: () => Promise<void>
   persistSettings: () => Promise<void>
   checkpointActiveSession: () => void
+  checkpointNow: () => Promise<void>
 
   theme: Theme
   setTheme: (theme: Theme) => void
@@ -164,6 +165,39 @@ export const useStore = create<AppState>()((set, get) => ({
         console.warn('Checkpoint failed:', e)
       }
     }, 1500)
+  },
+
+  // Immediate (non-debounced) checkpoint — used right before the app quits
+  // so an interrupted session is restored paused on the next launch.
+  checkpointNow: async () => {
+    const s = get()
+    try {
+      const base = await loadSettings().catch(() => ({} as any))
+      let activeSession: ActiveSession | null = null
+      if (s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0) {
+        activeSession = {
+          category: s.currentCategory,
+          timerMode: s.timerMode,
+          countdownTarget: s.countdownTarget,
+          focusStartTime: s.focusStartTime || Date.now(),
+          elapsedSeconds: s.elapsedSeconds,
+          remainingSeconds: s.remainingSeconds,
+          isPaused: s.isPaused,
+          isFocusing: s.isFocusing
+        }
+      }
+      await saveSettings({
+        ...base,
+        theme: s.theme,
+        backgrounds: s.backgrounds,
+        timerMode: s.timerMode,
+        countdownTarget: s.countdownTarget,
+        sidebarOpen: s.sidebarOpen,
+        activeSession
+      })
+    } catch (e) {
+      console.warn('Checkpoint failed:', e)
+    }
   },
 
   initApp: async () => {

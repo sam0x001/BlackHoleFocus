@@ -1,5 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+const subscribe = (channel) => (callback) => {
+  const listener = () => callback()
+  ipcRenderer.on(channel, listener)
+  return () => {
+    ipcRenderer.removeListener(channel, listener)
+  }
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -20,5 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeTask: (id) => ipcRenderer.invoke('db:removeTask', id),
 
   // Excel
-  saveExcel: (buffer, defaultName) => ipcRenderer.invoke('save-excel', buffer, defaultName)
+  saveExcel: (buffer, defaultName) => ipcRenderer.invoke('save-excel', buffer, defaultName),
+
+  // Session close / tray behavior
+  setSessionActive: (active) => ipcRenderer.invoke('session:setActive', Boolean(active)),
+  confirmWindowClose: () => ipcRenderer.send('window:confirm-close'),
+  hideToTray: () => ipcRenderer.send('window:hide-to-tray'),
+  onCloseRequested: subscribe('app:close-requested'),
+  onCheckpointBeforeQuit: subscribe('app:checkpoint-before-quit')
 })

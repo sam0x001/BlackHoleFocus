@@ -145,7 +145,7 @@ export default function Settings() {
       </section>
 
       <div className="mt-12 text-center space-y-2">
-        <p className="text-white/20 text-xs tracking-wide">BlackHole Focus v1.1</p>
+        <p className="text-white/20 text-xs tracking-wide">BlackHole Focus v1.2</p>
         <p className="text-white/15 text-[11px]">Developer: <span className="text-white/30">Sam</span></p>
         <a
           href="https://github.com/sam0x001/BlackHoleFoucs"

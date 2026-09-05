@@ -5,6 +5,8 @@ import { variance, stdDev, mean, currentMonthDates } from '../lib/stats'
 import Toast from '../components/Toast'
 import DatePicker from '../components/DatePicker'
 import ExportModal from '../components/ExportModal'
+import MonthPicker from '../components/MonthPicker'
+import MonthChart, { ChartMode } from '../components/MonthChart'
 
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600)
@@ -18,6 +20,12 @@ function formatDuration(seconds: number) {
 function formatHours(seconds: number) {
   return (seconds / 3600).toFixed(1)
 }
+
+const CHART_MODES: { id: ChartMode; label: string }[] = [
+  { id: 'bar', label: 'Bar' },
+  { id: 'line', label: 'Line' },
+  { id: 'sin', label: 'Sin' },
+]
 
 export default function Analytics() {
   const { sessions, theme, todayTotal, todayByCategory } = useStore()
@@ -34,21 +42,49 @@ export default function Analytics() {
   const [historyRangeFrom, setHistoryRangeFrom] = useState<string | null>(null)
   const [historyRangeTo, setHistoryRangeTo] = useState<string | null>(null)
 
-  const today = localDateString()
-  // Month chart: from day 1 through today only (incomplete month still shows data)
-  const monthDays = useMemo(() => {
-    return currentMonthDates().filter(d => d <= today)
-  }, [today])
+  // Months that contain recorded sessions ('YYYY-MM'), oldest first
+  const monthKeys = useMemo(() => {
+    const set = new Set<string>()
+    sessions.forEach(s => set.add(s.date.slice(0, 7)))
+    return [...set].sort()
+  }, [sessions])
 
-  const monthData = useMemo(() => {
+  const currentMonthKey = localDateString().slice(0, 7)
+
+  // Month chart: default to the current month when it has data, otherwise the
+  // most recent month that does. Months without data cannot be selected.
+  const [chartMonth, setChartMonth] = useState(() => {
+    const fallback = monthKeys[monthKeys.length - 1] || currentMonthKey
+    return monthKeys.includes(currentMonthKey) ? currentMonthKey : fallback
+  })
+  const [chartMode, setChartMode] = useState<ChartMode>('bar')
+
+  // All days of the selected month (future days simply have no value)
+  const chartPoints = useMemo(() => {
+    const [yy, mm] = chartMonth.split('-').map(Number)
+    const ref = new Date(yy, (mm || 1) - 1, 1)
     const map: Record<string, number> = {}
     sessions.forEach(s => {
-      map[s.date] = (map[s.date] || 0) + s.duration
+      if (s.date.startsWith(chartMonth + '-')) {
+        map[s.date] = (map[s.date] || 0) + s.duration
+      }
     })
-    return monthDays.map(date => ({ date, seconds: map[date] || 0 }))
-  }, [sessions, monthDays])
+    return currentMonthDates(ref).map(date => ({
+      date,
+      day: Number(date.slice(8)),
+      seconds: map[date] || 0
+    }))
+  }, [sessions, chartMonth])
 
-  const maxMonth = Math.max(...monthData.map(d => d.seconds), 1)
+  const chartDaysInMonth = chartPoints.length
+  const chartDataDays = chartPoints.filter(p => p.seconds > 0)
+  const chartTotalSeconds = chartDataDays.reduce((sum, p) => sum + p.seconds, 0)
+  const chartMonthLabel = new Date(
+    Number(chartMonth.slice(0, 4)),
+    Number(chartMonth.slice(5, 7)) - 1,
+    1
+  ).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
   const todayCatTotal = Object.values(todayByCategory).reduce((a, b) => a + b, 0) || 1
 
   const rangeDurations = useMemo(() => {
@@ -75,14 +111,6 @@ export default function Analytics() {
     byDate[s.date].push(s)
   })
   const sortedDates = Object.keys(byDate).sort().reverse()
-  const monthLabel = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-
-  const barGradient =
-    theme === 'void'
-      ? 'linear-gradient(180deg, #7dd3fc, #38bdf8aa)'
-      : theme === 'pulse'
-      ? 'linear-gradient(180deg, #c084fc, #a855f7aa)'
-      : 'linear-gradient(180deg, #60a5fa, #3b82f6aa)'
 
   const progressGradient =
     theme === 'void'
@@ -256,34 +284,36 @@ export default function Analytics() {
         )}
       </div>
 
-      {/* Monthly chart — days 1..today */}
+      {/* Monthly chart — selectable month, all days of the month */}
       <div className="glass-strong rounded-2xl p-5 mb-5 transition-all duration-300">
-        <h3 className="text-sm text-white/50 mb-1 tracking-wide">{monthLabel} — Focus</h3>
-        <p className="text-[10px] text-white/25 mb-4">
-          Day 1 – {monthDays.length} (so far this month)
-        </p>
-        <div className="flex items-end gap-[3px] h-32">
-          {monthData.map(d => (
-            <div
-              key={d.date}
-              className="flex-1 flex flex-col justify-end min-w-0 h-full"
-              title={`${d.date}: ${formatDuration(d.seconds)}`}
-            >
-              <div
-                className="w-full rounded-t-sm transition-all duration-500"
-                style={{
-                  height: `${Math.max(d.seconds > 0 ? 4 : 2, (d.seconds / maxMonth) * 100)}%`,
-                  background: d.seconds > 0 ? barGradient : 'rgba(255,255,255,0.05)'
-                }}
-              />
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm text-white/50 mb-1 tracking-wide">{chartMonthLabel} — Focus</h3>
+            <p className="text-[10px] text-white/25">
+              {chartDataDays.length === 0
+                ? 'No focus time recorded this month yet'
+                : `${chartDataDays.length} of ${chartDaysInMonth} days with data · ${formatDuration(chartTotalSeconds)} total`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <MonthPicker value={chartMonth} onChange={setChartMonth} availableMonths={monthKeys} />
+            <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/10">
+              {CHART_MODES.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setChartMode(m.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs capitalize transition-all no-drag
+                    ${chartMode === m.id
+                      ? 'bg-white/15 text-white border border-white/20'
+                      : 'text-white/45 hover:text-white/80 hover:bg-white/5'}`}
+                >
+                  {m.label}
+                </button>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-        <div className="flex justify-between mt-2 text-[10px] text-white/30">
-          <span>1</span>
-          <span>{Math.ceil(monthDays.length / 2) || ''}</span>
-          <span>{monthDays.length}</span>
-        </div>
+        <MonthChart points={chartPoints} daysInMonth={chartDaysInMonth} theme={theme} mode={chartMode} />
       </div>
 
       {/* Range stats */}

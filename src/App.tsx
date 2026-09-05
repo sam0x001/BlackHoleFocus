@@ -6,15 +6,17 @@ import FocusMode from './pages/FocusMode'
 import Settings from './pages/Settings'
 import Background from './components/Background'
 import TitleBar from './components/TitleBar'
+import CloseSessionModal from './components/CloseSessionModal'
 
 const Analytics = lazy(() => import('./pages/Analytics'))
 
 function App() {
   const {
-    currentView, tick, isFocusing, initApp, ready, sidebarOpen, toggleSidebar,
-    checkpointActiveSession, isPaused, currentCategory
+    currentView, tick, isFocusing, isPaused, currentCategory, elapsedSeconds,
+    initApp, ready, sidebarOpen, toggleSidebar
   } = useStore()
   const [error, setError] = useState<string | null>(null)
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -44,6 +46,24 @@ function App() {
     return () => clearInterval(interval)
   }, [isFocusing, tick])
 
+  // Tell the main process whether a session is active so closing the window
+  // can warn (active) or silently move to the tray (inactive).
+  const sessionActive = Boolean(currentCategory && (isFocusing || isPaused) && elapsedSeconds > 0)
+  useEffect(() => {
+    window.electronAPI?.setSessionActive(sessionActive)
+  }, [sessionActive])
+
+  // Main-process events: window close requested while a session runs, and a
+  // final checkpoint request before quitting from the tray.
+  useEffect(() => {
+    if (!window.electronAPI) return
+    const offClose = window.electronAPI.onCloseRequested(() => setCloseDialogOpen(true))
+    const offCheckpoint = window.electronAPI.onCheckpointBeforeQuit(() => {
+      useStore.getState().checkpointNow()
+    })
+    return () => { offClose(); offCheckpoint() }
+  }, [])
+
   // Flush checkpoint if window is closing mid-session
   useEffect(() => {
     const onBeforeUnload = () => {
@@ -55,6 +75,17 @@ function App() {
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [])
+
+  const handleExitAnyway = async () => {
+    setCloseDialogOpen(false)
+    await useStore.getState().checkpointNow()
+    window.electronAPI?.confirmWindowClose()
+  }
+
+  const handleKeepInBackground = () => {
+    setCloseDialogOpen(false)
+    window.electronAPI?.hideToTray()
+  }
 
   if (!ready) {
     return (
@@ -76,9 +107,13 @@ function App() {
             {!sidebarOpen && (
               <button
                 onClick={toggleSidebar}
-                className="absolute top-3 left-3 z-40 glass-button text-xs px-3 py-1.5 no-drag"
+                className="bh-menu-reveal absolute top-3 left-3 z-40 glass-button text-xs px-3 py-1.5 no-drag"
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               >
+                <span className="inline-flex flex-col gap-[3px] mr-2 -translate-y-px">
+                  <span className="block w-3 h-px bg-current" />
+                  <span className="block w-2 h-px bg-current" />
+                </span>
                 Menu
               </button>
             )}
@@ -93,6 +128,13 @@ function App() {
           </div>
         </main>
       </div>
+
+      <CloseSessionModal
+        isOpen={closeDialogOpen}
+        onCancel={() => setCloseDialogOpen(false)}
+        onExit={handleExitAnyway}
+        onBackground={handleKeepInBackground}
+      />
     </div>
   )
 }

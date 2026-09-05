@@ -1,9 +1,26 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
 let mainWindow
+let tray = null
+let sessionActive = false
+let quitting = false
 const isDev = !app.isPackaged
+
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })}
+
 
 function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -184,7 +201,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // Keep the 1s timer running accurately while hidden in the system tray
+      backgroundThrottling: false
     },
     show: false
   })
@@ -197,15 +216,105 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = null })
+
+  // Closing is always intercepted: with an active session ask the user,
+  // otherwise quietly keep running from the system tray.
+  mainWindow.on('close', (e) => {
+    if (quitting) return
+    e.preventDefault()
+    if (sessionActive && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app:close-requested')
+    } else {
+      hideWindowToTray(false)
+    }
+  })
+}
+
+// ---------- Tray / background session ----------
+function resolveAppIcon() {
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.ico'),
+    path.join(__dirname, '..', 'public', 'icon.ico'),
+    path.join(process.resourcesPath || '', 'icon.ico'),
+    path.join(process.resourcesPath || '', 'tray.ico')
+  ]
+  return candidates.find(p => p && fs.existsSync(p)) || null
+}
+
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function ensureTray() {
+  if (tray) return tray
+  const icon = resolveAppIcon()
+  tray = new Tray(icon ? nativeImage.createFromPath(icon) : nativeImage.createEmpty())
+  tray.setToolTip('BlackHole Focus')
+  const menu = Menu.buildFromTemplate([
+    { label: 'Open BlackHole Focus', click: showMainWindow },
+    { type: 'separator' },
+    { label: 'Quit', click: quitApp },
+  ])
+  tray.setContextMenu(menu)
+  tray.on('double-click', showMainWindow)
+  tray.on('click', showMainWindow)
+  return tray
+}
+
+function notifyTrayed() {
+  if (!Notification.isSupported()) return
+  const opts = {
+    title: 'BlackHole Focus',
+    body: 'Your focus session is still running — BlackHole Focus has moved to the system tray and keeps tracking time.',
+  }
+  const icon = resolveAppIcon()
+  if (icon) opts.icon = icon
+  const notification = new Notification(opts)
+  notification.on('click', showMainWindow)
+  notification.show()
+}
+
+function hideWindowToTray(notify) {
+  ensureTray()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
+  if (notify) notifyTrayed()
+}
+
+function quitApp() {
+  if (quitting) return
+  quitting = true
+  const finish = () => app.quit()
+  if (sessionActive && mainWindow && !mainWindow.isDestroyed()) {
+    // Give the renderer a moment to write the active-session checkpoint first
+    mainWindow.webContents.send('app:checkpoint-before-quit')
+    setTimeout(finish, 400)
+  } else {
+    finish()
+  }
 }
 
 app.whenReady().then(() => {
   ensureDataFiles()
   console.log('[BlackHole] Data folder:', dataDir())
+  if (process.platform === 'win32') app.setAppUserModelId('com.blackhole.focus')
+  ensureTray()
+  // Windows shutdown / logoff: quit without showing the session dialog
+  powerMonitor.on('session-end', () => quitApp())
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('will-quit', () => {
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
 })
 
 app.on('window-all-closed', () => {
@@ -296,6 +405,22 @@ ipcMain.handle('db:removeTask', (_e, id) => {
   list = list.filter(t => t.id !== id)
   writeJSON('tasks.json', list)
   return true
+})
+
+// ---------- Session close / tray ----------
+ipcMain.handle('session:setActive', (_e, active) => {
+  sessionActive = Boolean(active)
+})
+
+ipcMain.on('window:confirm-close', () => {
+  // User picked "Exit anyway" — renderer already saved the session checkpoint.
+  if (quitting) return
+  quitting = true
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+})
+
+ipcMain.on('window:hide-to-tray', () => {
+  hideWindowToTray(sessionActive)
 })
 
 // ---------- Excel ----------

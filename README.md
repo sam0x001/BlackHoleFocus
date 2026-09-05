@@ -2,7 +2,7 @@
   <img src="build/icon.ico" alt="BlackHole Focus" width="128" height="128" />
 </p>
 
-<h1 align="center">BlackHole Focus <i>V1.1</i></h1>
+<h1 align="center">BlackHole Focus <i>V1.2</i></h1>
 
 <p align="center">
   Personal focus tracker for Windows<br/>
@@ -35,13 +35,35 @@ All data stays on your machine. No account. No server.
 - **Categories** — Add or remove categories in settings with arbitrary color
 - **Tasks** — add, complete, delete during Focus Mode  
 - **Themes** — Void, Pulse, Neon (optional background image per theme)  
+- **Collapsible sidebar** — slide it away with the collapse button; bring it back with the **Menu** button (your choice is remembered)  
+- **Run in background** — closing the window keeps your session going from the system tray, with a notification when it moves there  
+- **Session recovery** — if the app closes or quits mid-session, it restores the session paused on next launch  
 - **Analytics** — sessions grouped by day
 - **Excel export** — date, category, duration. Included 2 modes: Daily Sumary & Detailed Sessions 
-- **Collapsible sidebar**  
 - **Local persistence** — JSON files on disk via Electron  
 - **Range Statics** — Total focused time, Mean/day, Std deviation, Variance
 - **History** — Check sessions within a specific date range
-- **Chart** — Provides a chart of focus time in the current month
+- **Chart** — Monthly focus chart with Bar / Line / Sin views; browse any recorded month
+
+---
+
+## Screenshots
+
+**Dashboard** — start a Stopwatch or Countdown session
+![Dashboard](images/screenshots/dashboard.png)
+
+**Focus Mode** — live timer with pause / resume and tasks on the side
+![Focus Mode](images/screenshots/focus-mode.png)
+
+**Analytics** — monthly chart, range statistics, history & Excel export
+![Analytics](images/screenshots/analytics.png)
+
+**Excel Report** — detailed & summary report to excel file
+![Excel Report](images/screenshots/excel-report.png)
+
+**Settings** — themes, per-theme backgrounds, categories & data path
+![Settings](images/screenshots/settings.png)
+
 
 ---
 
@@ -51,11 +73,11 @@ All data stays on your machine. No account. No server.
 blackhole-focus/
 ├── build/                 # Windows icon (icon.ico)
 ├── electron/
-│   ├── main.js            # Window + IPC + file storage
+│   ├── main.js            # Window + tray + IPC + file storage
 │   └── preload.js
 ├── public/
 ├── src/
-│   ├── components/        # Sidebar, Background, TitleBar, …
+│   ├── components/        # Sidebar, Background, TitleBar, MonthChart, …
 │   ├── pages/             # Dashboard, FocusMode, Analytics, Settings
 │   ├── store/             # Zustand state
 │   ├── db/                # Calls Electron IPC for read/write
@@ -171,7 +193,7 @@ Files inside `data/`:
 3. **Analytics** — history + Export Excel  
 4. **Settings** — theme, per-theme backgrounds, categories  
 
-Drag the top bar to move the window. Use **Hide** / **Menu** for the sidebar.
+Drag the top bar to move the window. Use the collapse button on the sidebar (or the **Menu** button once hidden) to show / hide the sidebar.
 
 ---
 
@@ -192,6 +214,7 @@ Windows may show SmartScreen for unsigned apps → *More info* → *Run anyway*.
 | Icon missing on exe | Valid `build/icon.ico` (256*256), delete `dist-electron`, rebuild |
 | Stuck on Loading | Reinstall deps: delete `node_modules`, run `npm install` |
 | Setup has no data after install | Fully install; data goes under `%APPDATA%\BlackHoleFocus\data\` |
+| App keeps running after closing | That's the tray — right-click the tray icon and choose **Quit** |
 
 ---
 

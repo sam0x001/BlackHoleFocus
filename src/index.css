@@ -120,3 +120,38 @@ main, aside {
 .glass, .glass-strong, .glass-button {
   transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease;
 }
+
+/* ---- Sidebar show / hide ---- */
+.sidebar-rail {
+  width: 13rem;
+  visibility: visible;
+  transition: width 0.35s cubic-bezier(0.32, 0.72, 0, 1), background-color 0.35s ease, border-color 0.35s ease, visibility 0s;
+}
+.sidebar-rail > * {
+  transition: opacity 0.3s ease;
+}
+.sidebar-closed {
+  width: 0 !important;
+  border-right-width: 0 !important;
+  visibility: hidden;
+  /* width collapses immediately, visibility flips only after the wipe ends */
+  transition: width 0.35s cubic-bezier(0.32, 0.72, 0, 1), background-color 0.35s ease, border-color 0.35s ease, visibility 0s linear 0.35s;
+}
+.sidebar-closed > * {
+  opacity: 0;
+}
+
+/* Reopen-menu button entrance (plays once the sidebar has slid away) */
+@keyframes bh-menu-reveal {
+  from {
+    opacity: 0;
+    transform: translate(-8px, 6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+.bh-menu-reveal {
+  animation: bh-menu-reveal 0.28s ease-out 0.3s both;
+}
