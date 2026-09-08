@@ -32,6 +32,7 @@ declare global {
 
     // Session close / tray behavior
     setSessionActive: (active: boolean) => Promise<void>
+    notifySessionEnded: () => void
     confirmWindowClose: () => void
     hideToTray: () => void
     onCloseRequested: (callback: () => void) => () => void

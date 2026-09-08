@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Session close / tray behavior
   setSessionActive: (active) => ipcRenderer.invoke('session:setActive', Boolean(active)),
+  notifySessionEnded: () => ipcRenderer.send('session:ended'),
   confirmWindowClose: () => ipcRenderer.send('window:confirm-close'),
   hideToTray: () => ipcRenderer.send('window:hide-to-tray'),
   onCloseRequested: subscribe('app:close-requested'),

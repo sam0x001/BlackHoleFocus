@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { execFile } = require('child_process')
 
 let mainWindow
 let tray = null
@@ -405,6 +406,69 @@ ipcMain.handle('db:removeTask', (_e, id) => {
   list = list.filter(t => t.id !== id)
   writeJSON('tasks.json', list)
   return true
+})
+
+// ---------- Session end sound ----------
+// The original "Bip-Bip" (two 350ms 880Hz tones, 100ms apart) is synthesized
+// as a WAV and played from the main process, so it is audible even when the
+// window is hidden in the system tray (renderer audio may be suspended).
+function buildBipBipWav() {
+  const sampleRate = 44100
+  const freq = 880
+  const beepSeconds = 0.35
+  const gapSeconds = 0.1
+  const amp = 0.3
+  const beepSamples = Math.floor(beepSeconds * sampleRate)
+  const gapSamples = Math.floor(gapSeconds * sampleRate)
+  const totalSamples = beepSamples * 2 + gapSamples
+  const dataSize = totalSamples * 2
+  const buf = Buffer.alloc(44 + dataSize)
+  buf.write('RIFF', 0)
+  buf.writeUInt32LE(36 + dataSize, 4)
+  buf.write('WAVE', 8)
+  buf.write('fmt ', 12)
+  buf.writeUInt32LE(16, 16)
+  buf.writeUInt16LE(1, 20) // PCM
+  buf.writeUInt16LE(1, 22) // mono
+  buf.writeUInt32LE(sampleRate, 24)
+  buf.writeUInt32LE(sampleRate * 2, 28)
+  buf.writeUInt16LE(2, 32)
+  buf.writeUInt16LE(16, 34)
+  buf.write('data', 36)
+  buf.writeUInt32LE(dataSize, 40)
+  for (let i = 0; i < totalSamples; i++) {
+    const inBeep = i < beepSamples || i >= beepSamples + gapSamples
+    const v = inBeep ? amp * Math.sin(2 * Math.PI * freq * i / sampleRate) : 0
+    buf.writeInt16LE(Math.round(v * 32767), 44 + i * 2)
+  }
+  return buf
+}
+
+function playFallbackBeep() {
+  shell.beep()
+  setTimeout(() => shell.beep(), 450)
+}
+
+function playSessionEndSound() {
+  if (process.platform !== 'win32') {
+    playFallbackBeep()
+    return
+  }
+  try {
+    const wavPath = path.join(app.getPath('temp'), 'blackhole-bipbip.wav')
+    fs.writeFileSync(wavPath, buildBipBipWav())
+    const ps = `$p = New-Object System.Media.SoundPlayer '${wavPath}'; $p.PlaySync()`
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], (err) => {
+      if (err) playFallbackBeep()
+    })
+  } catch (e) {
+    console.error('Session-end sound failed:', e)
+    playFallbackBeep()
+  }
+}
+
+ipcMain.on('session:ended', () => {
+  playSessionEndSound()
 })
 
 // ---------- Session close / tray ----------

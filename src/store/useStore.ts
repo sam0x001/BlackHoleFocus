@@ -390,21 +390,9 @@ export const useStore = create<AppState>()((set, get) => ({
       const remaining = Math.max(0, countdownTarget - elapsed)
       set({ remainingSeconds: remaining, elapsedSeconds: elapsed })
       if (remaining === 0) {
-        try {
-          const playBeep = () => {
-            const ctx = new AudioContext()
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.frequency.value = 880
-            gain.gain.value = 0.3
-            osc.start()
-            setTimeout(() => { osc.stop(); ctx.close() }, 350)
-          }
-          playBeep()
-          setTimeout(playBeep, 450)
-        } catch {}
+        // Play the "Bip-Bip" end-of-session sound through the main process so
+        // it is heard even when the window is hidden in the system tray.
+        window.electronAPI?.notifySessionEnded()
         get().stopFocus()
         return
       }
