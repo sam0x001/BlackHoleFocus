@@ -20,22 +20,25 @@ html, body, #root {
 
 @layer components {
   .glass {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 30px -14px rgba(0, 0, 0, 0.65);
   }
   .glass-strong {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px -18px rgba(0, 0, 0, 0.75);
   }
   .glass-button {
     @apply px-4 py-2 rounded-xl text-sm transition-all duration-200;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(16px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
   .glass-button:hover {
     background: rgba(255, 255, 255, 0.14);
@@ -141,7 +144,49 @@ main, aside {
   opacity: 0;
 }
 
-/* Reopen-menu button entrance (plays once the sidebar has slid away) */
+/* ---- Break Time (rest day) badge + chip ---- */
+.bh-rest-badge {
+  @apply inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full;
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+.bh-rest-chip {
+  @apply inline-flex items-center px-3 py-1.5 rounded-full text-xs transition-all;
+  color: rgba(167, 243, 208, 0.9);
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.bh-rest-chip:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: rgba(252, 165, 165, 0.95);
+}
+
+/* ---- Entrance animations ---- */
+@keyframes bh-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.glass-strong {
+  animation: bh-fade-up 0.3s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-strong { animation: none; }
+}
+
+/* ---- Theme accent via CSS variables (set by applyThemeVariables) ---- */
+:root {
+  --bh-accent: 159, 212, 255;
+}
+.glass-button:focus-visible {
+  border-color: rgba(var(--bh-accent), 0.45);
+  box-shadow: 0 0 0 2px rgba(var(--bh-accent), 0.18);
+  outline: none;
+}
+.glass-button:active {
+  transform: translateY(1px);
+}
 @keyframes bh-menu-reveal {
   from {
     opacity: 0;
@@ -155,3 +200,68 @@ main, aside {
 .bh-menu-reveal {
   animation: bh-menu-reveal 0.28s ease-out 0.3s both;
 }
+
+/* ---- Right panel show / hide (Dashboard + Focus Mode) ----
+   The container width slides (like the sidebar); the body fades/slides out
+   and the collapsed rail cross-fades in. */
+.bh-right-panel {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  width: var(--bh-panel-w, 428px);
+  transition: width 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.bh-right-panel.is-closed {
+  width: 3rem;
+}
+.bh-right-panel-body {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--bh-panel-w, 428px);
+  padding: 1.5rem;
+  overflow-y: auto;
+  transition: opacity 0.25s ease, transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.bh-right-panel.is-closed .bh-right-panel-body {
+  opacity: 0;
+  transform: translateX(24px);
+  pointer-events: none;
+}
+.bh-right-panel-rail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 1.5rem 1rem 1.5rem 0.25rem;
+  opacity: 0;
+  transform: translateX(12px);
+  pointer-events: none;
+  transition: opacity 0.25s ease 0.1s, transform 0.35s cubic-bezier(0.32, 0.72, 0, 1) 0.05s;
+}
+.bh-right-panel.is-closed .bh-right-panel-rail {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bh-right-panel,
+  .bh-right-panel-body,
+  .bh-right-panel-rail { transition: none; }
+}
+
+/* ---- Staggered hero entrance (reuses bh-fade-up) ---- */
+.bh-rise {
+  animation: bh-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.bh-rise-1 { animation-delay: 0.05s; }
+.bh-rise-2 { animation-delay: 0.12s; }
+.bh-rise-3 { animation-delay: 0.19s; }
+.bh-rise-4 { animation-delay: 0.26s; }
+@media (prefers-reduced-motion: reduce) {
+  .bh-rise { animation: none; }
+}
+

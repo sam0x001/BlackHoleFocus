@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor, shell, globalShortcut } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { execFile } = require('child_process')
@@ -7,6 +7,8 @@ let mainWindow
 let tray = null
 let sessionActive = false
 let quitting = false
+// Live session info mirrored into the tray tooltip / menu (fed by the renderer)
+let trayState = { active: false, paused: false, label: '' }
 const isDev = !app.isPackaged
 
 const gotTheLock = app.requestSingleInstanceLock()
@@ -27,14 +29,30 @@ function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+const CUSTOM_DIR_FILE = 'custom-data-dir.txt'
+
+/** User-chosen data folder (persisted in userData, outside the data dir). */
+function customDataDirPath() {
+  try {
+    const p = path.join(app.getPath('userData'), CUSTOM_DIR_FILE)
+    if (fs.existsSync(p)) {
+      const dir = fs.readFileSync(p, 'utf8').trim()
+      if (dir && fs.existsSync(dir)) return dir
+    }
+  } catch {}
+  return null
+}
+
 function dataDir() {
-  // Dev: project/data
-  // Production: %APPDATA%\BlackHoleFocus\data (writable)
-  let dir
-  if (isDev) {
-    dir = path.join(__dirname, '..', 'data')
-  } else {
-    dir = path.join(app.getPath('userData'), 'data')
+  // Custom folder (Settings → data) wins; else dev: project/data,
+  // production: %APPDATA%\BlackHoleFocus\data (writable)
+  let dir = customDataDirPath()
+  if (!dir) {
+    if (isDev) {
+      dir = path.join(__dirname, '..', 'data')
+    } else {
+      dir = path.join(app.getPath('userData'), 'data')
+    }
   }
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -77,6 +95,24 @@ function writeJSON(name, data) {
     throw e
   }
   return true
+}
+
+// ---------- Window bounds ----------
+function loadWindowBounds() {
+  const b = readJSON('window-bounds.json', null)
+  if (!b || !Number.isFinite(b.width) || !Number.isFinite(b.height)) return null
+  if (b.width < 1000 || b.height < 650) return null
+  return b
+}
+
+function saveWindowBounds() {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMaximized() || mainWindow.isMinimized()) return
+    writeJSON('window-bounds.json', mainWindow.getBounds())
+  } catch (e) {
+    console.warn('saveWindowBounds failed:', e)
+  }
 }
 
 // ---------- Append-only sessions (NDJSON) ----------
@@ -125,6 +161,8 @@ function loadSessionsFromDisk() {
         list.push(JSON.parse(t))
       } catch (e) {
         console.warn('Skip bad session line:', t.slice(0, 80))
+        // Preserve corrupt lines for manual recovery instead of silently dropping
+        try { fs.appendFileSync(filePath('sessions.corrupt.ndjson'), t + '\n', 'utf8') } catch {}
       }
     }
     // newest first
@@ -150,6 +188,68 @@ function appendSession(session) {
   sessionsCache.unshift(session)
 }
 
+/** Rewrite the whole NDJSON file atomically (list is newest-first). */
+function writeSessionsToDisk(list) {
+  sessionsCache = list
+  const p = filePath(SESSIONS_NDJSON)
+  const tmp = p + '.tmp'
+  const body = [...list].reverse().map(s => JSON.stringify(s)).join('\n')
+  fs.writeFileSync(tmp, body ? body + '\n' : '', 'utf8')
+  try {
+    fs.renameSync(tmp, p)
+  } catch {
+    if (fs.existsSync(p)) fs.unlinkSync(p)
+    fs.renameSync(tmp, p)
+  }
+}
+
+function uid() {
+  return require('crypto').randomUUID()
+}
+
+/** A session crossing local midnight is split so each day gets its own record. */
+function splitAtMidnight(session) {
+  if (!session || !Number.isFinite(session.duration) || !Number.isFinite(session.createdAt)) return [session]
+  const startMs = session.createdAt - session.duration * 1000
+  const startDate = localDateStr(new Date(startMs))
+  if (startDate === session.date || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return [session]
+  const endOfStartDay = new Date(`${startDate}T00:00:00`)
+  endOfStartDay.setDate(endOfStartDay.getDate() + 1)
+  const part1 = Math.max(0, Math.round((endOfStartDay.getTime() - startMs) / 1000))
+  const part2 = session.duration - part1
+  const out = []
+  if (part1 > 0) out.push({ ...session, id: uid(), date: startDate, duration: part1 })
+  if (part2 > 0) out.push({ ...session, duration: part2 })
+  return out
+}
+
+/** Merge incoming sessions with overlapping/touching sessions of the same category+day. */
+function mergeSessionsInto(existing, incoming) {
+  const list = [...existing]
+  for (const s of incoming) {
+    const sStart = s.createdAt - s.duration * 1000
+    const sEnd = s.createdAt
+    const idx = list.findIndex(o => {
+      if (o.category !== s.category || o.date !== s.date) return false
+      const oStart = o.createdAt - o.duration * 1000
+      return sStart <= o.createdAt + 60000 && sEnd >= oStart - 60000
+    })
+    if (idx >= 0) {
+      const o = list[idx]
+      list.splice(idx, 1, {
+        ...o,
+        duration: o.duration + s.duration,
+        createdAt: Math.max(o.createdAt, s.createdAt),
+        note: [o.note, s.note].filter(Boolean).join(' · ') || undefined
+      })
+    } else {
+      list.push(s)
+    }
+  }
+  list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  return list
+}
+
 // ---------- Defaults ----------
 const defaultCategories = []
 
@@ -170,6 +270,7 @@ function ensureDataFiles() {
   }
   if (!fs.existsSync(filePath('categories.json'))) writeJSON('categories.json', [])
   if (!fs.existsSync(filePath('tasks.json'))) writeJSON('tasks.json', [])
+  if (!fs.existsSync(filePath('restDays.json'))) writeJSON('restDays.json', [])
   if (!fs.existsSync(filePath('settings.json'))) writeJSON('settings.json', defaultSettings)
   loadSessionsFromDisk()
 }
@@ -184,9 +285,13 @@ function createWindow() {
   const iconPath = iconCandidates.find(p => p && fs.existsSync(p))
   console.log('[BlackHole] Window icon:', iconPath || 'NONE')
 
+  const savedBounds = loadWindowBounds()
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: savedBounds ? savedBounds.width : 1280,
+    height: savedBounds ? savedBounds.height : 800,
+    x: savedBounds && Number.isFinite(savedBounds.x) ? savedBounds.x : undefined,
+    y: savedBounds && Number.isFinite(savedBounds.y) ? savedBounds.y : undefined,
     minWidth: 1000,
     minHeight: 650,
     backgroundColor: '#050508',
@@ -221,6 +326,7 @@ function createWindow() {
   // Closing is always intercepted: with an active session ask the user,
   // otherwise quietly keep running from the system tray.
   mainWindow.on('close', (e) => {
+    saveWindowBounds()
     if (quitting) return
     e.preventDefault()
     if (sessionActive && !mainWindow.isDestroyed()) {
@@ -250,17 +356,29 @@ function showMainWindow() {
   mainWindow.focus()
 }
 
+function buildTrayMenu() {
+  if (!tray) return
+  const items = [{ label: 'Open BlackHole Focus', click: showMainWindow }]
+  if (trayState.active) {
+    items.push({
+      label: trayState.paused ? 'Resume session' : 'Pause session',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('app:tray-toggle-pause')
+        }
+      }
+    })
+  }
+  items.push({ type: 'separator' }, { label: 'Quit', click: quitApp })
+  tray.setContextMenu(Menu.buildFromTemplate(items))
+}
+
 function ensureTray() {
   if (tray) return tray
   const icon = resolveAppIcon()
   tray = new Tray(icon ? nativeImage.createFromPath(icon) : nativeImage.createEmpty())
   tray.setToolTip('BlackHole Focus')
-  const menu = Menu.buildFromTemplate([
-    { label: 'Open BlackHole Focus', click: showMainWindow },
-    { type: 'separator' },
-    { label: 'Quit', click: quitApp },
-  ])
-  tray.setContextMenu(menu)
+  buildTrayMenu()
   tray.on('double-click', showMainWindow)
   tray.on('click', showMainWindow)
   return tray
@@ -305,6 +423,16 @@ app.whenReady().then(() => {
   ensureTray()
   // Windows shutdown / logoff: quit without showing the session dialog
   powerMonitor.on('session-end', () => quitApp())
+  // Global hotkey: Ctrl/Cmd+Alt+F toggles pause/resume from anywhere
+  try {
+    globalShortcut.register('CommandOrControl+Alt+F', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('app:tray-toggle-pause')
+      }
+    })
+  } catch (e) {
+    console.error('Global shortcut registration failed:', e)
+  }
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -312,6 +440,7 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll() } catch {}
   if (tray) {
     tray.destroy()
     tray = null
@@ -332,6 +461,29 @@ ipcMain.handle('settings:set', (_e, data) => {
   return true
 })
 
+// ---------- Autostart ----------
+ipcMain.handle('app:getAutostart', () => {
+  try {
+    return Boolean(app.getLoginItemSettings().openAtLogin)
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('app:setAutostart', (_e, on) => {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(on),
+      path: process.execPath,
+      args: isDev ? [app.getAppPath()] : []
+    })
+    return true
+  } catch (e) {
+    console.error('setAutostart failed:', e)
+    return false
+  }
+})
+
 // ---------- IPC: Sessions ----------
 ipcMain.handle('db:path', () => dataDir())
 
@@ -340,8 +492,29 @@ ipcMain.handle('db:getSessions', () => {
 })
 
 ipcMain.handle('db:addSession', (_e, session) => {
-  appendSession(session)
-  return true
+  try {
+    const parts = splitAtMidnight(session)
+    const merged = mergeSessionsInto(getSessions(), parts)
+    writeSessionsToDisk(merged)
+    return true
+  } catch (e) {
+    console.error('addSession failed:', e)
+    try { appendSession(session) } catch {}
+    return false
+  }
+})
+
+ipcMain.handle('db:updateSession', (_e, id, patch) => {
+  try {
+    const clean = { ...patch }
+    delete clean.id
+    const list = getSessions().map(s => (s.id === id ? { ...s, ...clean, id: s.id } : s))
+    writeSessionsToDisk(list)
+    return true
+  } catch (e) {
+    console.error('updateSession failed:', e)
+    return false
+  }
 })
 
 ipcMain.handle('db:getTodayTotal', () => {
@@ -408,6 +581,165 @@ ipcMain.handle('db:removeTask', (_e, id) => {
   return true
 })
 
+// ---------- Rest days ("Break Time" in charts & reports) ----------
+const REST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function readRestDays() {
+  const list = readJSON('restDays.json', [])
+  return Array.isArray(list) ? list.filter(d => typeof d === 'string' && REST_DATE_RE.test(d)) : []
+}
+
+ipcMain.handle('db:getRestDays', () => readRestDays())
+
+ipcMain.handle('db:addRestDay', (_e, date) => {
+  if (typeof date !== 'string' || !REST_DATE_RE.test(date)) return readRestDays()
+  const list = readRestDays()
+  if (!list.includes(date)) list.push(date)
+  list.sort()
+  writeJSON('restDays.json', list)
+  return list
+})
+
+ipcMain.handle('db:removeRestDay', (_e, date) => {
+  const list = readRestDays().filter(d => d !== date)
+  writeJSON('restDays.json', list)
+  return list
+})
+
+// ---------- Session deletion (rewrites the append-only NDJSON log) ----------
+ipcMain.handle('db:deleteSession', (_e, id) => {
+  try {
+    writeSessionsToDisk(getSessions().filter(s => s.id !== id))
+    return true
+  } catch (e) {
+    console.error('deleteSession failed:', e)
+    return false
+  }
+})
+
+// ---------- Crash-recovery journal (renderer writes every tick) ----------
+const JOURNAL_FILE = 'active-session.json'
+let journalLastWrite = 0
+ipcMain.on('session:journal', (_e, data) => {
+  const now = Date.now()
+  if (now - journalLastWrite < 2000) return
+  journalLastWrite = now
+  try { writeJSON(JOURNAL_FILE, { ...data, savedAt: now }) } catch {}
+})
+ipcMain.on('session:journal-clear', () => {
+  try {
+    const p = filePath(JOURNAL_FILE)
+    if (fs.existsSync(p)) fs.unlinkSync(p)
+  } catch {}
+})
+ipcMain.handle('session:journal-get', () => readJSON(JOURNAL_FILE, null))
+
+// ---------- Data management: backup / import / custom folder ----------
+ipcMain.handle('data:backup', async () => {
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save backup',
+    defaultPath: `blackhole-backup-${localDateStr()}.json`,
+    filters: [{ name: 'Backup', extensions: ['json'] }]
+  })
+  if (res.canceled || !res.filePath) return { success: false, canceled: true }
+  try {
+    const bundle = {
+      app: 'BlackHoleFocus',
+      bundleVersion: 1,
+      exportedAt: new Date().toISOString(),
+      sessions: getSessions(),
+      categories: readJSON('categories.json', []),
+      tasks: readJSON('tasks.json', []),
+      restDays: readJSON('restDays.json', []),
+      settings: readJSON('settings.json', {})
+    }
+    fs.writeFileSync(res.filePath, JSON.stringify(bundle, null, 2), 'utf8')
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('data:import', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import sessions',
+    filters: [{ name: 'Session data', extensions: ['ndjson', 'json', 'txt'] }],
+    properties: ['openFile']
+  })
+  if (res.canceled || !res.filePaths[0]) return { success: false, canceled: true }
+  try {
+    const raw = fs.readFileSync(res.filePaths[0], 'utf8')
+    const existing = getSessions()
+    const ids = new Set(existing.map(s => s.id))
+    const incoming = []
+    for (const line of raw.split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const parsed = JSON.parse(t)
+        const items = Array.isArray(parsed) ? parsed : [parsed]
+        for (const it of items) {
+          if (
+            it && typeof it.category === 'string' && Number.isFinite(it.duration) &&
+            typeof it.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(it.date) && !ids.has(it.id)
+          ) {
+            const rec = {
+              ...it,
+              id: it.id || uid(),
+              createdAt: Number.isFinite(it.createdAt) ? it.createdAt : Date.now()
+            }
+            incoming.push(rec)
+            ids.add(rec.id)
+          }
+        }
+      } catch {}
+    }
+    if (incoming.length === 0) return { success: true, imported: 0 }
+    writeSessionsToDisk(mergeSessionsInto(existing, incoming))
+    return { success: true, imported: incoming.length }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('data:pick-folder', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose data folder',
+    properties: ['openDirectory', 'createDirectory']
+  })
+  if (res.canceled || !res.filePaths[0]) return { success: false, canceled: true }
+  const target = path.resolve(res.filePaths[0])
+  try {
+    const src = path.resolve(dataDir())
+    if (target === src) return { success: false, error: 'Already using this folder' }
+    for (const name of fs.readdirSync(src)) {
+      const from = path.join(src, name)
+      if (fs.statSync(from).isFile()) fs.copyFileSync(from, path.join(target, name))
+    }
+    fs.writeFileSync(path.join(app.getPath('userData'), CUSTOM_DIR_FILE), target, 'utf8')
+    sessionsCache = null
+    return { success: true, path: target }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('data:reset-folder', () => {
+  try {
+    const marker = path.join(app.getPath('userData'), CUSTOM_DIR_FILE)
+    if (fs.existsSync(marker)) fs.unlinkSync(marker)
+    sessionsCache = null
+    return true
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('data:open', () => {
+  shell.openPath(dataDir())
+  return true
+})
+
 // ---------- Session end sound ----------
 // The original "Bip-Bip" (two 350ms 880Hz tones, 100ms apart) is synthesized
 // as a WAV and played from the main process, so it is audible even when the
@@ -467,8 +799,44 @@ function playSessionEndSound() {
   }
 }
 
-ipcMain.on('session:ended', () => {
+ipcMain.on('session:ended', (_e, payload) => {
   playSessionEndSound()
+  // Notification when the window is hidden (tray), or always when asked
+  // (e.g. break-over alerts during Pomodoro cycles).
+  try {
+    const hidden = !mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()
+    if (Notification.isSupported() && (hidden || (payload && payload.always))) {
+      const secs = Math.max(0, Number(payload && payload.seconds) || 0)
+      const m = Math.floor(secs / 60)
+      const s = secs % 60
+      const duration = m > 0 ? `${m}m ${s}s` : `${s}s`
+      const body = (payload && payload.body) ||
+        `${(payload && payload.category) || 'Focus session'} · ${duration} recorded`
+      const notification = new Notification({
+        title: (payload && payload.title) || 'Focus session complete',
+        body
+      })
+      notification.on('click', showMainWindow)
+      notification.show()
+    }
+  } catch (e) {
+    console.error('Session-end notification failed:', e)
+  }
+})
+
+// ---------- Tray live state (elapsed time + pause/resume) ----------
+ipcMain.on('session:update-tray', (_e, info) => {
+  if (!info) return
+  const next = {
+    active: Boolean(info.active),
+    paused: Boolean(info.paused),
+    label: String(info.label || '')
+  }
+  const changed = next.active !== trayState.active || next.paused !== trayState.paused
+  trayState = next
+  ensureTray()
+  if (tray) tray.setToolTip(trayState.label || 'BlackHole Focus')
+  if (changed) buildTrayMenu()
 })
 
 // ---------- Session close / tray ----------

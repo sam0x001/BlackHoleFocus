@@ -1,4 +1,5 @@
 import { useStore, View, Theme } from '../store/useStore'
+import { usePalette } from '../lib/theme'
 import bhLogo from '../assets/bh-logo.png'
 
 const navItems: { id: View; label: string }[] = [
@@ -14,21 +15,11 @@ const themeLabels: Record<Theme, string> = {
   neon: 'Neon',
 }
 
-// Theme-tinted glow behind the brand mark
-const LOGO_GLOW: Record<Theme, string> = {
-  void: 'rgba(125, 211, 252, 0.5)',
-  pulse: 'rgba(192, 132, 252, 0.5)',
-  neon: 'rgba(96, 165, 250, 0.5)',
-}
-
 export default function Sidebar() {
   const { currentView, setView, theme, setTheme, sidebarOpen, toggleSidebar } = useStore()
+  const palette = usePalette()
 
-  const activeStyle = {
-    void: 'bg-sky-400/15 text-sky-200 border-sky-400/25',
-    pulse: 'bg-purple-400/15 text-purple-200 border-purple-400/25',
-    neon: 'bg-blue-400/15 text-blue-200 border-blue-400/25',
-  }[theme]
+  const activeStyle = palette.navActive
 
   return (
     <aside
@@ -44,7 +35,7 @@ export default function Sidebar() {
             draggable={false}
             className="w-7 h-7 shrink-0 select-none"
             style={{
-              filter: `drop-shadow(0 0 6px ${LOGO_GLOW[theme]}) drop-shadow(0 0 1px rgba(255,255,255,0.45))`,
+              filter: `drop-shadow(0 0 6px ${palette.logoGlow}) drop-shadow(0 0 1px rgba(255,255,255,0.45))`,
             }}
           />
           <div className="min-w-0 overflow-hidden">

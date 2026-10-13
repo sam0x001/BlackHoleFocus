@@ -1,195 +1,215 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
-
-function formatDuration(seconds: number) {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m`
-  return `${seconds}s`
-}
+import { formatDurationShort } from '../lib/format'
+import { localDateString } from '../lib/date'
+import { usePalette } from '../lib/theme'
 
 export default function Dashboard() {
   const {
-    theme,
-    categories,
     todayTotal,
     todayByCategory,
-    startFocus,
     sessions,
-    timerMode,
-    setTimerMode,
-    countdownTarget,
-    setCountdownTarget,
-    setView
+    setView,
+    restDays,
+    dailyGoalMinutes,
+    recoveryNotice,
+    clearRecoveryNotice
   } = useStore()
 
-  const [customMinutes, setCustomMinutes] = useState(String(Math.floor(countdownTarget / 60)))
+  const palette = usePalette()
+  const isRestToday = restDays.includes(localDateString())
   const totalAll = Object.values(todayByCategory).reduce((a, b) => a + b, 0) || 1
   const todayLabel = new Date().toLocaleDateString('en-US', {
     day: 'numeric', month: 'long', year: 'numeric'
   })
+  const todayDate = localDateString()
+  const todaySessions = sessions.filter(s => s.date === todayDate)
+  const categoryCount = Object.keys(todayByCategory).length
+  const goalSeconds = dailyGoalMinutes * 60
+  const goalPct = goalSeconds > 0 ? Math.min(100, Math.floor((todayTotal / goalSeconds) * 100)) : 0
+  const goalLeft = Math.max(0, goalSeconds - todayTotal)
 
-  const presetTimes = [
-    { label: '15m', sec: 15 * 60 },
-    { label: '25m', sec: 25 * 60 },
-    { label: '45m', sec: 45 * 60 },
-    { label: '60m', sec: 60 * 60 },
-  ]
-
-  const applyCustomMinutes = () => {
-    const mins = parseInt(customMinutes, 10)
-    if (!isNaN(mins) && mins > 0 && mins <= 600) setCountdownTarget(mins * 60)
+  // Right panel (breakdown + history) can be hidden to give the hero full width
+  const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem('bh:rightPanel') !== '0')
+  const togglePanel = () => {
+    const next = !panelOpen
+    setPanelOpen(next)
+    localStorage.setItem('bh:rightPanel', next ? '1' : '0')
   }
 
   return (
     <div className="h-full flex">
-      <div className="flex-1 flex flex-col items-center justify-center relative px-8">
-        <div className="absolute top-8 left-8">
-          <p className="text-white/40 text-sm mb-1">Today</p>
-          <h2 className="text-3xl font-semibold tracking-tight">{todayLabel}</h2>
-        </div>
-        <div className="text-center">
-          <p className="text-white/45 text-sm mb-2 tracking-wide">Focused today</p>
-          <p className="text-5xl font-semibold tracking-tight tabular-nums">
-            {formatDuration(todayTotal)}
+      <div className="flex-1 flex flex-col px-8 min-w-0 overflow-hidden">
+        <header className="pt-7 shrink-0">
+          <p className="text-[11px] tracking-[0.34em] uppercase text-white/35">Today</p>
+          <h2 className="text-[28px] leading-tight font-semibold tracking-tight mt-1">{todayLabel}</h2>
+        </header>
+
+        {/* Hero */}
+        <div className="flex-1 flex flex-col items-center justify-center min-h-0 pb-6">
+          {recoveryNotice && (
+            <div className="bh-rise bh-rise-1 mb-4 flex items-center gap-3 glass rounded-2xl px-5 py-3 border-amber-300/20 max-w-md">
+              <p className="text-xs text-amber-200/80 flex-1">{recoveryNotice}</p>
+              <button onClick={clearRecoveryNotice} className="text-amber-200/50 hover:text-amber-200 text-xs shrink-0" title="Dismiss">
+                Dismiss
+              </button>
+            </div>
+          )}
+          <p className="bh-rise bh-rise-1 text-[11px] tracking-[0.35em] uppercase text-white/40 mb-4">
+            Focused today
           </p>
+
+          <div className="bh-rise bh-rise-2">
+            <p className="text-[64px] leading-none font-semibold tracking-tight tabular-nums text-white">
+              {formatDurationShort(todayTotal)}
+            </p>
+          </div>
+
+          {isRestToday && (
+            <p className="bh-rise bh-rise-3 mt-4">
+              <span className="bh-rest-badge">Break Time — today excluded from stats</span>
+            </p>
+          )}
+
+          <div className="bh-rise bh-rise-3 mt-7 flex items-stretch gap-3">
+            <div className="glass rounded-2xl px-6 py-3.5 text-center">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-white/40 mb-1">Sessions</p>
+              <p className="text-xl font-semibold tabular-nums">{todaySessions.length}</p>
+            </div>
+            <div className="glass rounded-2xl px-6 py-3.5 text-center">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-white/40 mb-1">Categories</p>
+              <p className="text-xl font-semibold tabular-nums">{categoryCount}</p>
+            </div>
+          </div>
+
+          <div className="bh-rise bh-rise-4 mt-9 flex flex-col items-center gap-3">
+            <button
+              onClick={() => setView('focus')}
+              className="glass-button text-sm font-medium text-white/90 px-7 py-3 inline-flex items-center gap-2.5"
+            >
+              Start Focusing
+              <svg
+                viewBox="0 0 16 16"
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
+              </svg>
+            </button>
+            <p className="text-white/25 text-xs tracking-wide">Pick a category inside Focus Mode</p>
+          </div>
         </div>
       </div>
 
-      <div className="w-[380px] p-6 flex flex-col gap-4 overflow-y-auto">
-        <div className="glass-strong rounded-2xl p-5">
-          <h3 className="text-sm text-white/50 mb-3 tracking-wide">Timer Mode</h3>
-          <div className="flex gap-2 mb-4">
-            {(['stopwatch', 'countdown'] as const).map(mode => (
-              <button
-                key={mode}
-                onClick={() => setTimerMode(mode)}
-                className={`flex-1 py-2 rounded-xl text-sm capitalize transition-all ${
-                  timerMode === mode
-                    ? 'bg-white/15 text-white border border-white/20'
-                    : 'bg-white/5 text-white/45 hover:bg-white/10'
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
+      {/* Right panel — animated slide in/out */}
+      <div
+        className={`bh-right-panel ${panelOpen ? '' : 'is-closed'}`}
+        style={{ '--bh-panel-w': '428px' } as React.CSSProperties}
+      >
+        <div className="bh-right-panel-body flex flex-col gap-4">
+          <div className="flex justify-end -mb-1">
+            <button
+              onClick={togglePanel}
+              title="Hide panel"
+              aria-label="Hide right panel"
+              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/50 hover:text-white/80 text-sm transition-all flex items-center justify-center"
+            >
+              ›
+            </button>
           </div>
-          {timerMode === 'countdown' && (
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                {presetTimes.map(p => (
-                  <button
-                    key={p.sec}
-                    onClick={() => {
-                      setCountdownTarget(p.sec)
-                      setCustomMinutes(String(p.sec / 60))
-                    }}
-                    className={`flex-1 py-1.5 rounded-lg text-xs ${
-                      countdownTarget === p.sec
-                        ? 'bg-white/15 text-white border border-white/20'
-                        : 'bg-white/5 text-white/40 hover:bg-white/10'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={600}
-                  value={customMinutes}
-                  onChange={e => setCustomMinutes(e.target.value)}
-                  onBlur={applyCustomMinutes}
-                  onKeyDown={e => e.key === 'Enter' && applyCustomMinutes()}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-white/25 text-center"
-                />
-                <span className="text-xs text-white/40 shrink-0">min</span>
-                <button onClick={applyCustomMinutes} className="glass-button text-xs py-2 px-3">Set</button>
-              </div>
-            </div>
-          )}
-        </div>
 
-        <div className="glass-strong rounded-2xl p-5">
-          <h3 className="text-sm text-white/50 mb-3 tracking-wide">Start Focus Session</h3>
-          {categories.length === 0 ? (
-            <div className="text-center py-4">
-              <p className="text-white/40 text-sm mb-3">No categories yet</p>
-              <button onClick={() => setView('settings')} className="glass-button text-xs">
-                Add categories in Settings
-              </button>
+          <div className="glass-strong rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h3 className="text-sm text-white/50 tracking-wide">Daily Goal</h3>
+              {goalSeconds > 0 && (
+                <span className="text-xs text-white/40 tabular-nums shrink-0">
+                  {formatDurationShort(Math.min(todayTotal, goalSeconds))} / {dailyGoalMinutes}m
+                </span>
+              )}
             </div>
-          ) : (
-            <div className="space-y-2">
-              {categories.map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => startFocus(cat.name)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all text-left"
-                >
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
-                  <span className="text-sm text-white/85 flex-1 truncate">{cat.name}</span>
-                  <span className="text-xs text-white/30 shrink-0">
-                    {timerMode === 'countdown' ? `${Math.floor(countdownTarget / 60)}m` : 'Start'}
+            {goalSeconds === 0 ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-white/30 text-sm">No goal set</p>
+                <button onClick={() => setView('settings')} className="glass-button text-xs">Set goal</button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-baseline justify-between mb-2 gap-2">
+                  <span className="text-2xl font-semibold tabular-nums">{goalPct}%</span>
+                  <span className="text-[11px] text-white/35 shrink-0">
+                    {goalLeft > 0 ? `${formatDurationShort(goalLeft)} left` : 'Goal reached'}
                   </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="glass-strong rounded-2xl p-5">
-          <h3 className="text-sm text-white/50 mb-4 tracking-wide">Today Breakdown</h3>
-          {Object.keys(todayByCategory).length === 0 ? (
-            <p className="text-white/30 text-sm text-center py-4">No sessions yet</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(todayByCategory).map(([cat, secs]) => {
-                const percent = Math.round((secs / totalAll) * 100)
-                return (
-                  <div key={cat}>
-                    <div className="flex justify-between text-sm mb-1.5 gap-2">
-                      <span className="text-white/75 truncate">{cat}</span>
-                      <span className="text-white/40 shrink-0">{formatDuration(secs)} · {percent}%</span>
-                    </div>
-                    <div className="h-1 rounded-full bg-white/10 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${percent}%`,
-                          background: theme === 'void'
-                            ? 'linear-gradient(90deg, #38bdf8, #7dd3fc)'
-                            : theme === 'pulse'
-                            ? 'linear-gradient(90deg, #a855f7, #c084fc)'
-                            : 'linear-gradient(90deg, #3b82f6, #60a5fa)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="glass-strong rounded-2xl p-5">
-          <h3 className="text-sm text-white/50 mb-3 tracking-wide">Recent Sessions</h3>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto">
-            {sessions.slice(0, 8).map(s => (
-              <div key={s.id} className="flex justify-between items-center gap-3 text-sm py-2 border-b border-white/5 last:border-0">
-                <span className="text-white/70 truncate min-w-0">{s.category}</span>
-                <span className="text-white/35 text-xs shrink-0">{formatDuration(s.duration)}</span>
-              </div>
-            ))}
-            {sessions.length === 0 && (
-              <p className="text-white/30 text-sm text-center py-4">Empty</p>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${goalPct}%`, background: palette.gradient }}
+                  />
+                </div>
+              </>
             )}
           </div>
+
+          <div className="glass-strong rounded-2xl p-5">
+            <h3 className="text-sm text-white/50 mb-4 tracking-wide">Today Breakdown</h3>
+            {Object.keys(todayByCategory).length === 0 ? (
+              <p className="text-white/30 text-sm text-center py-4">No sessions yet</p>
+            ) : (
+              <div className="space-y-3">
+                {Object.entries(todayByCategory).map(([cat, secs]) => {
+                  const percent = Math.round((secs / totalAll) * 100)
+                  return (
+                    <div key={cat}>
+                      <div className="flex justify-between text-sm mb-1.5 gap-2">
+                        <span className="text-white/75 truncate">{cat}</span>
+                        <span className="text-white/40 shrink-0">{formatDurationShort(secs)} · {percent}%</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${percent}%`, background: palette.gradient }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="glass-strong rounded-2xl p-5">
+            <h3 className="text-sm text-white/50 mb-3 tracking-wide">Recent Sessions</h3>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {sessions.slice(0, 8).map(s => (
+                <div key={s.id} className="flex justify-between items-center gap-3 text-sm py-2 border-b border-white/5 last:border-0">
+                  <span className="text-white/70 truncate min-w-0">{s.category}</span>
+                  <span className="text-white/35 text-xs shrink-0">{formatDurationShort(s.duration)}</span>
+                </div>
+              ))}
+              {sessions.length === 0 && (
+                <p className="text-white/30 text-sm text-center py-4">Empty</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="bh-right-panel-rail">
+          <button
+            onClick={togglePanel}
+            title="Show panel"
+            aria-label="Show right panel"
+            className="w-7 h-16 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/50 hover:text-white/80 text-sm transition-all flex items-center justify-center"
+          >
+            ‹
+          </button>
         </div>
       </div>
     </div>
   )
 }
+

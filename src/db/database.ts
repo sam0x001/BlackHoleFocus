@@ -63,3 +63,68 @@ export async function loadSettings() {
 export async function saveSettings(data: any) {
   return api().setSettings(data)
 }
+
+// ---------- Rest days (excluded from stats, labeled "Break Time") ----------
+export async function dbGetRestDays(): Promise<string[]> {
+  return api().getRestDays()
+}
+
+export async function dbAddRestDay(date: string): Promise<string[]> {
+  return api().addRestDay(date)
+}
+
+export async function dbRemoveRestDay(date: string): Promise<string[]> {
+  return api().removeRestDay(date)
+}
+
+// ---------- Sessions ----------
+export async function dbDeleteSession(id: string): Promise<boolean> {
+  return api().deleteSession(id)
+}
+
+export async function dbUpdateSession(id: string, patch: any): Promise<boolean> {
+  return api().updateSession(id, patch)
+}
+
+// ---------- Crash-recovery journal ----------
+export async function getSessionJournal(): Promise<any | null> {
+  return api().getJournal()
+}
+
+export function writeSessionJournal(data: any) {
+  api().writeJournal(data)
+}
+
+export function clearSessionJournal() {
+  api().clearJournal()
+}
+
+// ---------- Data management (backup / import / custom folder) ----------
+export async function dbBackupData() {
+  return api().backupData()
+}
+
+export async function dbImportSessions() {
+  return api().importSessions()
+}
+
+export async function dbPickDataFolder() {
+  return api().pickDataFolder()
+}
+
+export async function dbResetDataFolder(): Promise<boolean> {
+  return api().resetDataFolder()
+}
+
+export async function dbOpenDataFolder(): Promise<boolean> {
+  return api().openDataFolder()
+}
+
+// ---------- App ----------
+export async function getAutostart(): Promise<boolean> {
+  return api().getAutostart()
+}
+
+export async function setAutostart(on: boolean): Promise<boolean> {
+  return api().setAutostart(on)
+}

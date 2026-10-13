@@ -30,11 +30,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Excel
   saveExcel: (buffer, defaultName) => ipcRenderer.invoke('save-excel', buffer, defaultName),
 
+  // Rest days ("Break Time")
+  getRestDays: () => ipcRenderer.invoke('db:getRestDays'),
+  addRestDay: (date) => ipcRenderer.invoke('db:addRestDay', date),
+  removeRestDay: (date) => ipcRenderer.invoke('db:removeRestDay', date),
+
+  // Session deletion
+  deleteSession: (id) => ipcRenderer.invoke('db:deleteSession', id),
+  updateSession: (id, patch) => ipcRenderer.invoke('db:updateSession', id, patch),
+
+  // Crash-recovery journal (written every tick, cleared on clean stop)
+  writeJournal: (data) => ipcRenderer.send('session:journal', data),
+  clearJournal: () => ipcRenderer.send('session:journal-clear'),
+  getJournal: () => ipcRenderer.invoke('session:journal-get'),
+
+  // Data management (backup / import / custom folder)
+  backupData: () => ipcRenderer.invoke('data:backup'),
+  importSessions: () => ipcRenderer.invoke('data:import'),
+  pickDataFolder: () => ipcRenderer.invoke('data:pick-folder'),
+  resetDataFolder: () => ipcRenderer.invoke('data:reset-folder'),
+  openDataFolder: () => ipcRenderer.invoke('data:open'),
+
+  // App behaviour
+  getAutostart: () => ipcRenderer.invoke('app:getAutostart'),
+  setAutostart: (on) => ipcRenderer.invoke('app:setAutostart', on),
+
   // Session close / tray behavior
   setSessionActive: (active) => ipcRenderer.invoke('session:setActive', Boolean(active)),
-  notifySessionEnded: () => ipcRenderer.send('session:ended'),
+  notifySessionEnded: (payload) => ipcRenderer.send('session:ended', payload),
+  updateTray: (info) => ipcRenderer.send('session:update-tray', info),
   confirmWindowClose: () => ipcRenderer.send('window:confirm-close'),
   hideToTray: () => ipcRenderer.send('window:hide-to-tray'),
   onCloseRequested: subscribe('app:close-requested'),
-  onCheckpointBeforeQuit: subscribe('app:checkpoint-before-quit')
+  onCheckpointBeforeQuit: subscribe('app:checkpoint-before-quit'),
+  onTrayTogglePause: subscribe('app:tray-toggle-pause')
 })

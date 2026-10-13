@@ -1,5 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { useStore } from './store/useStore'
+import { applyThemeVariables, effectivePalette } from './lib/theme'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import FocusMode from './pages/FocusMode'
@@ -7,13 +8,14 @@ import Settings from './pages/Settings'
 import Background from './components/Background'
 import TitleBar from './components/TitleBar'
 import CloseSessionModal from './components/CloseSessionModal'
+import CommandPalette from './CommandPalette'
 
 const Analytics = lazy(() => import('./pages/Analytics'))
 
 function App() {
   const {
     currentView, tick, isFocusing, isPaused, currentCategory, elapsedSeconds,
-    initApp, ready, sidebarOpen, toggleSidebar
+    initApp, ready, theme, accentOverride
   } = useStore()
   const [error, setError] = useState<string | null>(null)
   const [closeDialogOpen, setCloseDialogOpen] = useState(false)
@@ -46,6 +48,12 @@ function App() {
     return () => clearInterval(interval)
   }, [isFocusing, tick])
 
+  // Publish the active palette as CSS variables so glass/button styles follow
+  // the theme (honouring a per-theme accent override).
+  useEffect(() => {
+    applyThemeVariables(effectivePalette(theme, accentOverride[theme]))
+  }, [theme, accentOverride])
+
   // Tell the main process whether a session is active so closing the window
   // can warn (active) or silently move to the tray (inactive).
   const sessionActive = Boolean(currentCategory && (isFocusing || isPaused) && elapsedSeconds > 0)
@@ -53,16 +61,51 @@ function App() {
     window.electronAPI?.setSessionActive(sessionActive)
   }, [sessionActive])
 
-  // Main-process events: window close requested while a session runs, and a
-  // final checkpoint request before quitting from the tray.
+  // Main-process events: window close requested while a session runs, a final
+  // checkpoint request before quitting from the tray, and tray menu pause/resume.
   useEffect(() => {
     if (!window.electronAPI) return
     const offClose = window.electronAPI.onCloseRequested(() => setCloseDialogOpen(true))
     const offCheckpoint = window.electronAPI.onCheckpointBeforeQuit(() => {
       useStore.getState().checkpointNow()
     })
-    return () => { offClose(); offCheckpoint() }
+    const offTrayToggle = window.electronAPI.onTrayTogglePause(() => {
+      const s = useStore.getState()
+      if (!s.currentCategory) return
+      if (s.isFocusing) s.pauseFocus()
+      else if (s.isPaused) s.resumeFocus()
+    })
+    return () => { offClose(); offCheckpoint(); offTrayToggle() }
   }, [])
+
+  // Keyboard shortcuts: Space = pause/resume, Esc = close modal / collapse sidebar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const typing =
+        !!target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      const onControl =
+        !!target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.tagName === 'SELECT')
+
+      if (e.code === 'Space' && !typing && !onControl && (isFocusing || isPaused)) {
+        e.preventDefault()
+        const s = useStore.getState()
+        if (!s.currentCategory) return
+        if (s.isFocusing) s.pauseFocus()
+        else if (s.isPaused) s.resumeFocus()
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        useStore.getState().togglePalette()
+      } else if (e.key === 'Escape') {
+        if (useStore.getState().paletteOpen) useStore.getState().togglePalette()
+        else if (closeDialogOpen) setCloseDialogOpen(false)
+        else if (useStore.getState().sidebarOpen) useStore.getState().toggleSidebar()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isFocusing, isPaused, closeDialogOpen])
 
   // Flush checkpoint if window is closing mid-session
   useEffect(() => {
@@ -104,19 +147,6 @@ function App() {
         <Sidebar />
         <main className="flex-1 relative overflow-hidden">
           <div className="h-full relative z-20">
-            {!sidebarOpen && (
-              <button
-                onClick={toggleSidebar}
-                className="bh-menu-reveal absolute top-3 left-3 z-40 glass-button text-xs px-3 py-1.5 no-drag"
-                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              >
-                <span className="inline-flex flex-col gap-[3px] mr-2 -translate-y-px">
-                  <span className="block w-3 h-px bg-current" />
-                  <span className="block w-2 h-px bg-current" />
-                </span>
-                Menu
-              </button>
-            )}
             {currentView === 'dashboard' && <Dashboard />}
             {currentView === 'focus' && <FocusMode />}
             {currentView === 'analytics' && (
@@ -129,6 +159,7 @@ function App() {
         </main>
       </div>
 
+      <CommandPalette />
       <CloseSessionModal
         isOpen={closeDialogOpen}
         onCancel={() => setCloseDialogOpen(false)}

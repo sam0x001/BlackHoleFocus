@@ -1,19 +1,11 @@
 import { useStore } from '../store/useStore'
+import { formatDuration } from '../lib/format'
 
 interface Props {
   isOpen: boolean
   onCancel: () => void
   onExit: () => void
   onBackground: () => void
-}
-
-function formatDuration(seconds: number) {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
 }
 
 export default function CloseSessionModal({ isOpen, onCancel, onExit, onBackground }: Props) {

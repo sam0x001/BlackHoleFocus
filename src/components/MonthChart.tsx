@@ -1,4 +1,6 @@
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Theme } from '../store/useStore'
+import { formatDuration } from '../lib/format'
 
 export type ChartMode = 'bar' | 'line' | 'sin'
 
@@ -6,6 +8,8 @@ export interface DayPoint {
   date: string
   day: number
   seconds: number
+  /** Marked as a Break Time (rest) day — excluded from totals, rendered emerald. */
+  rest?: boolean
 }
 
 interface Props {
@@ -14,6 +18,16 @@ interface Props {
   daysInMonth: number
   theme: Theme
   mode: ChartMode
+  /**
+   * Right-click handler for a day column — only fired in bar mode.
+   * (x, y) are the viewport coordinates of the pointer for context menus.
+   */
+  onDayRightClick?: (point: DayPoint, x: number, y: number) => void
+  /**
+   * Drag across the chart (left button, any mode) to hand a date range back
+   * to the parent — used by Analytics to set "Range statistics" From/To.
+   */
+  onRangeSelect?: (from: string, to: string) => void
 }
 
 // ---- SVG geometry (viewBox units) ----
@@ -34,15 +48,6 @@ const TREND_COLOR = '#34d399'
 // ---- Helpers ----
 function hours(seconds: number) {
   return seconds / 3600
-}
-
-function formatDuration(seconds: number) {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.round(seconds % 60)
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
 }
 
 /** Compact human duration from an hour count, e.g. 1.5 -> "1h 30m" */
@@ -128,11 +133,18 @@ function buildSmoothPath(points: XY[]): string {
   return out.join(' ')
 }
 
-export default function MonthChart({ points, daysInMonth, theme, mode }: Props) {
-  const positive = points.filter(p => p.seconds > 0)
+export default function MonthChart({ points, daysInMonth, theme, mode, onDayRightClick, onRangeSelect }: Props) {
+  // Drag-to-select state — declared before the empty-month early return so the
+  // hook order never changes between renders.
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const [dragSel, setDragSel] = useState<{ anchor: number; current: number } | null>(null)
 
-  // No data at all in this month -> friendly placeholder at same aspect ratio
-  if (positive.length === 0) {
+  const positive = points.filter(p => p.seconds > 0 && !p.rest)
+  const restPoints = points.filter(p => p.rest)
+  const restDayNums = new Set(restPoints.map(p => p.day))
+
+  // Nothing at all this month -> friendly placeholder at same aspect ratio
+  if (positive.length === 0 && restPoints.length === 0) {
     return (
       <div
         className="w-full flex items-center justify-center rounded-xl border border-white/5 bg-white/[0.02]"
@@ -145,6 +157,45 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
 
   const xAt = (day: number) => ML + (day - 0.5) * (PW / daysInMonth)
   const slot = PW / daysInMonth
+
+  // ---- Drag-to-select a date range (see onRangeSelect) ----
+  const dayFromClientX = (clientX: number): number | null => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect || !rect.width) return null
+    const x = (clientX - rect.left) * (W / rect.width)
+    // Only inside the plot columns — labels/axis gutters start no drag
+    if (x < ML || x > ML + PW) return null
+    const day = Math.floor((x - ML) / slot) + 1
+    return Math.min(daysInMonth, Math.max(1, day))
+  }
+
+  const handlePointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (!onRangeSelect || e.button !== 0) return
+    const day = dayFromClientX(e.clientX)
+    if (day == null) return
+    e.preventDefault()
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
+    setDragSel({ anchor: day, current: day })
+  }
+
+  const handlePointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (!dragSel) return
+    const day = dayFromClientX(e.clientX)
+    if (day == null || day === dragSel.current) return
+    setDragSel({ anchor: dragSel.anchor, current: day })
+  }
+
+  const finishDrag = () => {
+    const sel = dragSel
+    setDragSel(null)
+    // A plain click (no day change) must not touch the caller's range
+    if (!sel || !onRangeSelect || sel.current === sel.anchor) return
+    const a = Math.min(sel.anchor, sel.current)
+    const b = Math.max(sel.anchor, sel.current)
+    const fromDate = points[a - 1]?.date
+    const toDate = points[b - 1]?.date
+    if (fromDate && toDate) onRangeSelect(fromDate, toDate)
+  }
 
   const dataHours = positive.map(p => hours(p.seconds))
 
@@ -201,7 +252,7 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
   const showLabels = positive.length <= 10
 
   // Table (bottom-right, sin mode): last few recorded days + projected month end
-  const tableRows = mode === 'sin' ? positive.slice(-7) : []
+  const tableRows = mode === 'sin' ? points.filter(p => p.seconds > 0 || p.rest).slice(-7) : []
   const showTable = mode === 'sin' && (tableRows.length > 0 || showProjection)
 
   let lastLabeledX = -Infinity
@@ -209,7 +260,18 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
   return (
     <div className="w-full flex items-start gap-4">
       <div className="flex-1 min-w-0">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" role="img" aria-label={`Focus time chart (${mode} mode)`}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full h-auto select-none"
+          style={{ touchAction: 'none' }}
+          role="img"
+          aria-label={`Focus time chart (${mode} mode)`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={finishDrag}
+          onPointerCancel={() => setDragSel(null)}
+        >
       <defs>
         <linearGradient id={`bh-bar-${theme}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={accentSoft} />
@@ -242,6 +304,22 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
 
       {/* Base axis */}
       <line x1={ML} y1={BASE_Y} x2={ML + PW} y2={BASE_Y} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+
+      {/* Break Time (rest) days — emerald stub on the baseline + tooltip */}
+      {restPoints.map(p => (
+        <g key={`rest-${p.date}`}>
+          <title>{`${p.date}: Break Time (excluded from stats)`}</title>
+          <rect
+            x={xAt(p.day) - Math.min(7, slot * 0.3)}
+            y={BASE_Y - 5}
+            width={Math.min(14, slot * 0.6)}
+            height={4}
+            rx={2}
+            fill="#34d399"
+            opacity={0.8}
+          />
+        </g>
+      ))}
 
       {/* Bar mode */}
       {mode === 'bar' && positive.map(p => {
@@ -320,9 +398,74 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
         </>
       )}
 
+      {/* Drag selection — translucent column band + date-range label */}
+      {dragSel && (() => {
+        const a = Math.min(dragSel.anchor, dragSel.current)
+        const b = Math.max(dragSel.anchor, dragSel.current)
+        const x0 = ML + (a - 1) * slot
+        const w = (b - a + 1) * slot
+        const fmt = (date: string | undefined) =>
+          date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+        const label = a === b
+          ? fmt(points[a - 1]?.date)
+          : `${fmt(points[a - 1]?.date)} – ${fmt(points[b - 1]?.date)}`
+        return (
+          <g pointerEvents="none">
+            <rect
+              x={x0} y={MT} width={w} height={PH} rx={4}
+              fill="rgba(255,255,255,0.10)"
+              stroke="rgba(255,255,255,0.45)"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+            <rect x={x0} y={MT} width={w} height={17} fill="rgba(5,5,8,0.8)" />
+            <text
+              x={x0 + w / 2}
+              y={MT + 12}
+              textAnchor="middle"
+              fontSize="10"
+              fontWeight="600"
+              fill="rgba(255,255,255,0.85)"
+            >
+              {label}
+            </text>
+          </g>
+        )
+      })()}
+
+      {/* Right-click hit area per day column (bar mode only) — transparent,
+          sits on top of everything so every day can be context-clicked */}
+      {mode === 'bar' && onDayRightClick && points.map(p => (
+        <rect
+          key={`hit-${p.date}`}
+          className="bh-chart-day-hit"
+          x={xAt(p.day) - slot / 2}
+          y={MT}
+          width={slot}
+          height={PH}
+          fill="transparent"
+          style={{ cursor: 'context-menu' }}
+          onContextMenu={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            onDayRightClick(p, e.clientX, e.clientY)
+          }}
+        >
+          <title>{p.rest ? `${p.date}: Break Time` : p.date}</title>
+        </rect>
+      ))}
+
       {/* X labels — every day of the month */}
       {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => (
-        <text key={d} x={xAt(d)} y={H - 7} textAnchor="middle" fontSize="9.5" fill="rgba(255,255,255,0.4)">
+        <text
+          key={d}
+          x={xAt(d)}
+          y={H - 7}
+          textAnchor="middle"
+          fontSize="9.5"
+          fontWeight={restDayNums.has(d) ? 600 : 400}
+          fill={restDayNums.has(d) ? 'rgba(52,211,153,0.85)' : 'rgba(255,255,255,0.4)'}
+        >
           {d}
         </text>
       ))}
@@ -343,8 +486,10 @@ export default function MonthChart({ points, daysInMonth, theme, mode }: Props) 
                 key={p.date}
                 className={`flex items-center justify-between py-[5px] text-xs ${i === tableRows.length - 1 && !showProjection ? '' : 'border-b border-white/[0.05]'}`}
               >
-                <span className="text-white/45 tabular-nums">{p.day}</span>
-                <span className="text-white/85 tabular-nums">{compactHours(hours(p.seconds))}</span>
+                <span className={`tabular-nums ${restDayNums.has(p.day) ? 'text-emerald-300/70' : 'text-white/45'}`}>{p.day}</span>
+                <span className={`tabular-nums ${restDayNums.has(p.day) ? 'text-emerald-300 font-medium' : 'text-white/85'}`}>
+                  {restDayNums.has(p.day) ? 'Break' : compactHours(hours(p.seconds))}
+                </span>
               </div>
             ))}
           </div>

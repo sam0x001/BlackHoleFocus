@@ -44,7 +44,7 @@ export default function ExportModal({ isOpen, onClose, onExport }: Props) {
     {
       id: 'summary',
       title: 'Daily Summary',
-      desc: 'All sessions for each day are aggregated into a single row. Categories with the same name are combined (total time is summed). Best for high-level reports and quick time tracking overviews.',
+      desc: 'All sessions for each day are aggregated into a single row. Categories with the same name are combined (total time is summed). The workbook contains one worksheet per month; rest days appear as zero-length "Break Time" rows excluded from stats. Best for high-level reports and quick time tracking overviews.',
       example: `Date       | Details                                       | Duration (secs) | Duration       | Notes
 -----------+-----------------------------------------------+-----------------+----------------+--------
 2026-08-19 | OWASP review: 2h | Hunt: 1h | Challenge: 54m  | 10480           | 2h-54m-40s     |
@@ -53,7 +53,7 @@ export default function ExportModal({ isOpen, onClose, onExport }: Props) {
     {
       id: 'detailed',
       title: 'Detailed Sessions',
-      desc: 'One row per session. Each focus session appears separately, ordered chronologically. Empty rows separate different dates for readability.',
+      desc: 'One row per session. Each focus session appears separately, ordered chronologically. Empty rows separate different dates for readability. The workbook contains one worksheet per month; rest days appear as "Break Time" rows excluded from stats.',
       example: `Date       | Category       | Duration (seconds) | Duration | Note
 -----------+----------------+--------------------+----------+----------------
 2026-08-19 | OWASP review   | 3600               | 1h       | Deep dive

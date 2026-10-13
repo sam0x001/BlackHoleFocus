@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { localDateString } from '../lib/date'
+import { formatClock } from '../lib/format'
 import {
   initDatabase,
   dbGetSessions,
@@ -13,13 +14,22 @@ import {
   dbAddTask,
   dbToggleTask,
   dbRemoveTask,
+  dbGetRestDays,
+  dbAddRestDay,
+  dbRemoveRestDay,
+  dbDeleteSession,
+  dbUpdateSession,
+  getSessionJournal,
+  writeSessionJournal,
+  clearSessionJournal,
   loadSettings,
   saveSettings
 } from '../db/database'
 
 export type Theme = 'void' | 'pulse' | 'neon'
 export type View = 'dashboard' | 'focus' | 'analytics' | 'settings'
-export type TimerMode = 'stopwatch' | 'countdown'
+export type TimerMode = 'stopwatch' | 'countdown' | 'pomodoro'
+export type Phase = 'focus' | 'break'
 
 export interface Session {
   id: string
@@ -45,6 +55,16 @@ export interface ActiveSession {
   remainingSeconds: number
   isPaused: boolean
   isFocusing: boolean
+  /** Pomodoro cycle phase + counter. */
+  phase?: Phase
+  cycleCount?: number
+}
+
+export interface PomodoroSettings {
+  focusMin: number
+  breakMin: number
+  longBreakMin: number
+  longEvery: number
 }
 
 interface AppState {
@@ -94,6 +114,54 @@ interface AppState {
   addTask: (text: string) => Promise<void>
   toggleTask: (id: string) => Promise<void>
   removeTask: (id: string) => Promise<void>
+
+  // Rest days ("Break Time") — excluded from stats/reports
+  restDays: string[]
+  addRestDay: (date: string) => Promise<void>
+  removeRestDay: (date: string) => Promise<void>
+  toggleRestDay: (date: string) => Promise<void>
+
+  // Session deletion (from Analytics history)
+  deleteSession: (id: string) => Promise<void>
+
+  // Note attached to the currently running session (saved with it)
+  sessionNote: string
+  setSessionNote: (note: string) => void
+
+  // Dashboard daily goal (minutes) + live wallpaper (vid/blackhole.mp4)
+  dailyGoalMinutes: number
+  setDailyGoalMinutes: (min: number) => void
+  liveWallpaper: boolean
+  setLiveWallpaper: (on: boolean) => void
+
+  // Pomodoro cycle settings
+  pomodoro: PomodoroSettings
+  setPomodoro: (patch: Partial<PomodoroSettings>) => void
+  phase: Phase
+  cycleCount: number
+  skipBreak: () => void
+
+  // Session-end sound + notification toggle
+  sessionAlerts: boolean
+  setSessionAlerts: (on: boolean) => void
+
+  // Per-theme accent colour override (null = use theme default)
+  accentOverride: Record<Theme, string | null>
+  setAccentOverride: (theme: Theme, hex: string | null) => void
+
+  // Crash-recovery notice (shown as a Dashboard banner)
+  recoveryNotice: string | null
+  clearRecoveryNotice: () => void
+
+  // Command palette (Ctrl+K)
+  paletteOpen: boolean
+  togglePalette: () => void
+
+  // Session editing (Analytics history)
+  updateSession: (id: string, patch: Partial<Session>) => Promise<void>
+
+  /** Save the running focus block as a session (used by stop + Pomodoro cycles). */
+  commitSession: (duration: number) => Promise<void>
 }
 
 const fallbackCategories: Category[] = []
@@ -104,78 +172,15 @@ const COLOR_PALETTE = [
 ]
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null
-let checkpointTimer: ReturnType<typeof setTimeout> | null = null
 
-export const useStore = create<AppState>()((set, get) => ({
-  ready: false,
-
-  persistSettings: async () => {
-    if (persistTimer) clearTimeout(persistTimer)
-    return new Promise((resolve) => {
-      persistTimer = setTimeout(async () => {
-        const s = get()
-        try {
-          const prev = await loadSettings().catch(() => ({} as any))
-          await saveSettings({
-            theme: s.theme,
-            backgrounds: s.backgrounds,
-            timerMode: s.timerMode,
-            countdownTarget: s.countdownTarget,
-            sidebarOpen: s.sidebarOpen,
-            // preserve activeSession if checkpoint wrote it
-            activeSession: (prev as any).activeSession ?? null
-          })
-        } catch (e) {
-          console.warn('Could not save settings:', e)
-        }
-        resolve()
-      }, 1500)
-    })
-  },
-
-  checkpointActiveSession: () => {
-    if (checkpointTimer) clearTimeout(checkpointTimer)
-    checkpointTimer = setTimeout(async () => {
-      const s = get()
-      try {
-        const base = await loadSettings().catch(() => ({} as any))
-        let activeSession: ActiveSession | null = null
-        if (s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0) {
-          activeSession = {
-            category: s.currentCategory,
-            timerMode: s.timerMode,
-            countdownTarget: s.countdownTarget,
-            focusStartTime: s.focusStartTime || Date.now(),
-            elapsedSeconds: s.elapsedSeconds,
-            remainingSeconds: s.remainingSeconds,
-            isPaused: s.isPaused,
-            isFocusing: s.isFocusing
-          }
-        }
-        await saveSettings({
-          ...base,
-          theme: s.theme,
-          backgrounds: s.backgrounds,
-          timerMode: s.timerMode,
-          countdownTarget: s.countdownTarget,
-          sidebarOpen: s.sidebarOpen,
-          activeSession
-        })
-      } catch (e) {
-        console.warn('Checkpoint failed:', e)
-      }
-    }, 1500)
-  },
-
-  // Immediate (non-debounced) checkpoint — used right before the app quits
-  // so an interrupted session is restored paused on the next launch.
-  checkpointNow: async () => {
-    const s = get()
-    try {
-      const base = await loadSettings().catch(() => ({} as any))
-      let activeSession: ActiveSession | null = null
-      if (s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0) {
-        activeSession = {
+/** Everything persisted to settings.json — one snapshot, one writer.
+ *  The old code had two independent debounced writers (persistSettings &
+ *  checkpointActiveSession) that each read-modify-wrote settings.json and
+ *  could clobber each other's fields. */
+function settingsSnapshot(s: AppState) {
+  const activeSession: ActiveSession | null =
+    s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0
+      ? {
           category: s.currentCategory,
           timerMode: s.timerMode,
           countdownTarget: s.countdownTarget,
@@ -183,21 +188,83 @@ export const useStore = create<AppState>()((set, get) => ({
           elapsedSeconds: s.elapsedSeconds,
           remainingSeconds: s.remainingSeconds,
           isPaused: s.isPaused,
-          isFocusing: s.isFocusing
+          isFocusing: s.isFocusing,
+          phase: s.phase,
+          cycleCount: s.cycleCount
         }
-      }
-      await saveSettings({
-        ...base,
-        theme: s.theme,
-        backgrounds: s.backgrounds,
-        timerMode: s.timerMode,
-        countdownTarget: s.countdownTarget,
-        sidebarOpen: s.sidebarOpen,
-        activeSession
-      })
-    } catch (e) {
-      console.warn('Checkpoint failed:', e)
+      : null
+  return {
+    theme: s.theme,
+    backgrounds: s.backgrounds,
+    timerMode: s.timerMode,
+    countdownTarget: s.countdownTarget,
+    sidebarOpen: s.sidebarOpen,
+    dailyGoalMinutes: s.dailyGoalMinutes,
+    liveWallpaper: s.liveWallpaper,
+    pomodoro: s.pomodoro,
+    sessionAlerts: s.sessionAlerts,
+    accentOverride: s.accentOverride,
+    activeSession
+  }
+}
+
+async function writeSettings() {
+  try {
+    const base = await loadSettings().catch(() => ({} as any))
+    await saveSettings({ ...base, ...settingsSnapshot(useStore.getState()) })
+  } catch (e) {
+    console.warn('Could not save settings:', e)
+  }
+}
+
+function schedulePersist(): Promise<void> {
+  if (persistTimer) clearTimeout(persistTimer)
+  return new Promise((resolve) => {
+    persistTimer = setTimeout(async () => {
+      persistTimer = null
+      await writeSettings()
+      resolve()
+    }, 1500)
+  })
+}
+
+/** Mirror the live session into the system-tray tooltip. */
+function syncTray() {
+  try {
+    const s = useStore.getState()
+    const active = Boolean(s.currentCategory && (s.isFocusing || s.isPaused) && s.elapsedSeconds > 0)
+    const clock = formatClock(s.timerMode === 'countdown' || s.timerMode === 'pomodoro' ? s.remainingSeconds : s.elapsedSeconds)
+    window.electronAPI?.updateTray({
+      active,
+      paused: s.isPaused,
+      label: active
+        ? `BlackHole Focus — ${clock}${s.currentCategory ? ` · ${s.currentCategory}` : ''}${
+            s.timerMode === 'pomodoro' && s.phase === 'break' ? ' · break' : ''
+          }`
+        : ''
+    })
+  } catch {}
+}
+
+export const useStore = create<AppState>()((set, get) => ({
+  ready: false,
+
+  persistSettings: () => schedulePersist(),
+
+  // Debounced checkpoint — both entry points funnel into the single writer
+  // above so settings and the active-session snapshot never race.
+  checkpointActiveSession: () => {
+    schedulePersist()
+  },
+
+  // Immediate (non-debounced) checkpoint — used right before the app quits
+  // so an interrupted session is restored paused on the next launch.
+  checkpointNow: async () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
     }
+    await writeSettings()
   },
 
   initApp: async () => {
@@ -216,6 +283,7 @@ export const useStore = create<AppState>()((set, get) => ({
       let tasks: any[] = []
       let todayTotal = 0
       let todayByCategory: Record<string, number> = {}
+      let restDays: string[] = []
 
       try {
         sessions = await dbGetSessions()
@@ -227,7 +295,17 @@ export const useStore = create<AppState>()((set, get) => ({
         console.warn('DB load partial failure:', e)
       }
 
-      const active: ActiveSession | null = settings.activeSession || null
+      try {
+        restDays = await dbGetRestDays()
+      } catch {}
+
+      // Prefer the fresher of the settings checkpoint vs the crash journal
+      let journal: any = null
+      try { journal = await getSessionJournal() } catch {}
+      const candidates = [settings.activeSession, journal].filter(Boolean)
+      const active: ActiveSession | null =
+        candidates.sort((a: any, b: any) => (b?.elapsedSeconds || 0) - (a?.elapsedSeconds || 0))[0] || null
+      const recoveredFromCrash = Boolean(journal && journal.elapsedSeconds >= (settings.activeSession?.elapsedSeconds || 0) && journal.elapsedSeconds > 0)
 
       set({
         ready: true,
@@ -239,9 +317,24 @@ export const useStore = create<AppState>()((set, get) => ({
         sessions,
         categories,
         tasks,
+        restDays,
+        dailyGoalMinutes: Number(settings.dailyGoalMinutes) > 0 ? Number(settings.dailyGoalMinutes) : 120,
+        liveWallpaper: settings.liveWallpaper !== false,
+        pomodoro: {
+          focusMin: Number(settings.pomodoro?.focusMin) > 0 ? Number(settings.pomodoro.focusMin) : 25,
+          breakMin: Number(settings.pomodoro?.breakMin) > 0 ? Number(settings.pomodoro.breakMin) : 5,
+          longBreakMin: Number(settings.pomodoro?.longBreakMin) > 0 ? Number(settings.pomodoro.longBreakMin) : 15,
+          longEvery: Number(settings.pomodoro?.longEvery) > 0 ? Number(settings.pomodoro.longEvery) : 4
+        },
+        sessionAlerts: settings.sessionAlerts !== false,
+        accentOverride: {
+          void: settings.accentOverride?.void || null,
+          pulse: settings.accentOverride?.pulse || null,
+          neon: settings.accentOverride?.neon || null
+        },
         todayTotal,
         todayByCategory,
-        // Restore interrupted session
+        // Restore interrupted session (paused), from the newest source
         ...(active && active.category && active.elapsedSeconds > 0
           ? {
               currentCategory: active.category,
@@ -249,20 +342,26 @@ export const useStore = create<AppState>()((set, get) => ({
               countdownTarget: active.countdownTarget || settings.countdownTarget || 25 * 60,
               elapsedSeconds: active.elapsedSeconds,
               remainingSeconds: active.remainingSeconds || 0,
+              phase: active.phase || 'focus',
+              cycleCount: active.cycleCount || 0,
               isPaused: true,
               isFocusing: false,
               focusStartTime: null,
-              currentView: 'focus' as View
+              currentView: 'focus' as View,
+              recoveryNotice: recoveredFromCrash
+                ? `Recovered an interrupted session — ${Math.floor(active.elapsedSeconds / 60)}m kept, paused.`
+                : null
             }
           : {})
       })
 
-      // Clear checkpoint after restore so we don't double-apply
+      // Clear checkpoint + journal after restore so we don't double-apply
       if (active) {
         try {
           await saveSettings({ ...settings, activeSession: null })
         } catch {}
       }
+      try { clearSessionJournal() } catch {}
     } catch (err) {
       console.error('initApp failed:', err)
       set({ ready: true, categories: fallbackCategories })
@@ -307,22 +406,29 @@ export const useStore = create<AppState>()((set, get) => ({
   remainingSeconds: 0,
 
   startFocus: (category) => {
-    const { timerMode, countdownTarget } = get()
+    const { timerMode, countdownTarget, pomodoro } = get()
+    const target = timerMode === 'pomodoro' ? pomodoro.focusMin * 60 : countdownTarget
     set({
       isFocusing: true,
       isPaused: false,
       currentCategory: category,
       focusStartTime: Date.now(),
       elapsedSeconds: 0,
-      remainingSeconds: timerMode === 'countdown' ? countdownTarget : 0,
+      remainingSeconds: timerMode === 'stopwatch' ? 0 : target,
+      countdownTarget: target,
+      phase: 'focus',
+      cycleCount: 0,
+      sessionNote: '',
       currentView: 'focus'
     })
     get().checkpointActiveSession()
+    syncTray()
   },
 
   pauseFocus: () => {
     set({ isFocusing: false, isPaused: true })
     get().checkpointActiveSession()
+    syncTray()
   },
 
   resumeFocus: () => {
@@ -335,31 +441,38 @@ export const useStore = create<AppState>()((set, get) => ({
         : Date.now() - (countdownTarget - remainingSeconds) * 1000
     })
     get().checkpointActiveSession()
+    syncTray()
+  },
+
+  commitSession: async (duration) => {
+    const { currentCategory } = get()
+    if (duration <= 5 || !currentCategory) return
+    const note = get().sessionNote.trim()
+    const session: Session = {
+      id: crypto.randomUUID(),
+      date: localDateString(),
+      category: currentCategory,
+      duration,
+      note: note || undefined,
+      createdAt: Date.now()
+    }
+    try {
+      await dbAddSession(session)
+      await get().refreshStats()
+      const sessions = await dbGetSessions()
+      set({ sessions })
+    } catch (e) {
+      console.error('Failed to save session:', e)
+      set({ sessions: [session, ...get().sessions] })
+    }
   },
 
   stopFocus: async () => {
-    const { elapsedSeconds, currentCategory, timerMode, countdownTarget, remainingSeconds } = get()
-    const duration = timerMode === 'countdown'
-      ? countdownTarget - remainingSeconds
-      : elapsedSeconds
-
-    if (duration > 5 && currentCategory) {
-      const session: Session = {
-        id: crypto.randomUUID(),
-        date: localDateString(),
-        category: currentCategory,
-        duration,
-        createdAt: Date.now()
-      }
-      try {
-        await dbAddSession(session)
-        await get().refreshStats()
-        const sessions = await dbGetSessions()
-        set({ sessions })
-      } catch (e) {
-        console.error('Failed to save session:', e)
-        set({ sessions: [session, ...get().sessions] })
-      }
+    const { timerMode, countdownTarget, remainingSeconds, elapsedSeconds, phase } = get()
+    // Break time is never recorded; focus blocks are.
+    if (!(timerMode === 'pomodoro' && phase === 'break')) {
+      const duration = timerMode === 'stopwatch' ? elapsedSeconds : countdownTarget - remainingSeconds
+      await get().commitSession(duration)
     }
 
     set({
@@ -369,14 +482,35 @@ export const useStore = create<AppState>()((set, get) => ({
       focusStartTime: null,
       elapsedSeconds: 0,
       remainingSeconds: 0,
+      phase: 'focus',
+      cycleCount: 0,
+      sessionNote: '',
       currentView: 'dashboard'
     })
+    syncTray()
+    try { clearSessionJournal() } catch {}
 
     // Clear active session checkpoint
     try {
       const base = await loadSettings().catch(() => ({} as any))
       await saveSettings({ ...base, activeSession: null })
     } catch {}
+  },
+
+  skipBreak: () => {
+    if (get().timerMode !== 'pomodoro' || get().phase !== 'break') return
+    const focusSec = get().pomodoro.focusMin * 60
+    set({
+      phase: 'focus',
+      countdownTarget: focusSec,
+      remainingSeconds: focusSec,
+      elapsedSeconds: 0,
+      focusStartTime: Date.now(),
+      isFocusing: true,
+      isPaused: false
+    })
+    get().checkpointActiveSession()
+    syncTray()
   },
 
   tick: () => {
@@ -390,14 +524,84 @@ export const useStore = create<AppState>()((set, get) => ({
       const remaining = Math.max(0, countdownTarget - elapsed)
       set({ remainingSeconds: remaining, elapsedSeconds: elapsed })
       if (remaining === 0) {
-        // Play the "Bip-Bip" end-of-session sound through the main process so
-        // it is heard even when the window is hidden in the system tray.
-        window.electronAPI?.notifySessionEnded()
+        const s = get()
+        if (timerMode === 'pomodoro' && s.phase === 'focus') {
+          // Focus block done → record it, then roll into the break countdown
+          get().commitSession(countdownTarget)
+          const cycle = s.cycleCount + 1
+          const p = s.pomodoro
+          const isLong = cycle % Math.max(1, p.longEvery) === 0
+          const breakSec = (isLong ? p.longBreakMin : p.breakMin) * 60
+          if (s.sessionAlerts) {
+            // "Bip-Bip" through the main process (audible in the tray too)
+            window.electronAPI?.notifySessionEnded({
+              category: s.currentCategory || undefined,
+              seconds: countdownTarget,
+              title: isLong ? 'Long break time' : 'Break time',
+              body: `Cycle ${cycle} done — ${Math.round(breakSec / 60)}m break`
+            })
+          }
+          set({
+            cycleCount: cycle,
+            phase: 'break',
+            countdownTarget: breakSec,
+            remainingSeconds: breakSec,
+            elapsedSeconds: 0,
+            focusStartTime: Date.now()
+          })
+          get().checkpointActiveSession()
+          syncTray()
+          return
+        }
+        if (timerMode === 'pomodoro' && s.phase === 'break') {
+          // Break over → alert + straight into the next focus block
+          const focusSec = s.pomodoro.focusMin * 60
+          if (s.sessionAlerts) {
+            window.electronAPI?.notifySessionEnded({
+              seconds: 0,
+              title: 'Break finished',
+              body: 'Back to focus — starting the next cycle',
+              always: true
+            })
+          }
+          set({
+            phase: 'focus',
+            countdownTarget: focusSec,
+            remainingSeconds: focusSec,
+            elapsedSeconds: 0,
+            focusStartTime: Date.now()
+          })
+          get().checkpointActiveSession()
+          syncTray()
+          return
+        }
+        // Plain countdown finished → alert + save + stop
+        if (s.sessionAlerts) {
+          window.electronAPI?.notifySessionEnded({
+            category: s.currentCategory || undefined,
+            seconds: elapsed
+          })
+        }
         get().stopFocus()
         return
       }
     }
-    // Checkpoint every tick (debounced inside)
+    // Crash-recovery journal (throttled in main), tray mirror, checkpoint
+    try {
+      writeSessionJournal({
+        category: get().currentCategory,
+        timerMode: get().timerMode,
+        countdownTarget: get().countdownTarget,
+        phase: get().phase,
+        cycleCount: get().cycleCount,
+        focusStartTime: get().focusStartTime,
+        elapsedSeconds: get().elapsedSeconds,
+        remainingSeconds: get().remainingSeconds,
+        isPaused: get().isPaused,
+        isFocusing: get().isFocusing
+      })
+    } catch {}
+    syncTray()
     get().checkpointActiveSession()
   },
 
@@ -462,4 +666,108 @@ export const useStore = create<AppState>()((set, get) => ({
       set({ tasks: get().tasks.filter(t => t.id !== id) })
     }
   },
+
+  // ---------- Rest days ("Break Time") ----------
+  restDays: [],
+  addRestDay: async (date) => {
+    try {
+      set({ restDays: await dbAddRestDay(date) })
+    } catch {
+      if (!get().restDays.includes(date)) {
+        set({ restDays: [...get().restDays, date].sort() })
+      }
+    }
+  },
+  removeRestDay: async (date) => {
+    try {
+      set({ restDays: await dbRemoveRestDay(date) })
+    } catch {
+      set({ restDays: get().restDays.filter(d => d !== date) })
+    }
+  },
+  toggleRestDay: async (date) => {
+    if (get().restDays.includes(date)) {
+      await get().removeRestDay(date)
+    } else {
+      await get().addRestDay(date)
+    }
+  },
+
+  // ---------- Session deletion ----------
+  deleteSession: async (id) => {
+    const prev = get().sessions
+    set({ sessions: prev.filter(s => s.id !== id) })
+    try {
+      await dbDeleteSession(id)
+      await get().refreshStats()
+    } catch (e) {
+      console.error('Failed to delete session:', e)
+      set({ sessions: prev })
+    }
+  },
+
+  // ---------- Session note ----------
+  sessionNote: '',
+  setSessionNote: (note) => set({ sessionNote: note }),
+
+  // ---------- Daily goal & live wallpaper ----------
+  dailyGoalMinutes: 120,
+  setDailyGoalMinutes: (min) => {
+    set({ dailyGoalMinutes: Math.max(0, Math.round(min)) })
+    get().persistSettings()
+  },
+  liveWallpaper: true,
+  setLiveWallpaper: (on) => {
+    set({ liveWallpaper: on })
+    get().persistSettings()
+  },
+
+  // ---------- Pomodoro cycles ----------
+  pomodoro: { focusMin: 25, breakMin: 5, longBreakMin: 15, longEvery: 4 },
+  setPomodoro: (patch) => {
+    const next = { ...get().pomodoro, ...patch }
+    next.focusMin = Math.min(120, Math.max(1, Math.round(next.focusMin) || 25))
+    next.breakMin = Math.min(60, Math.max(1, Math.round(next.breakMin) || 5))
+    next.longBreakMin = Math.min(120, Math.max(1, Math.round(next.longBreakMin) || 15))
+    next.longEvery = Math.min(12, Math.max(1, Math.round(next.longEvery) || 4))
+    set({ pomodoro: next })
+    get().persistSettings()
+  },
+  phase: 'focus',
+  cycleCount: 0,
+
+  // ---------- Session-end alerts (sound + notification) ----------
+  sessionAlerts: true,
+  setSessionAlerts: (on) => {
+    set({ sessionAlerts: on })
+    get().persistSettings()
+  },
+
+  // ---------- Per-theme accent override ----------
+  accentOverride: { void: null, pulse: null, neon: null },
+  setAccentOverride: (theme, hex) => {
+    set({ accentOverride: { ...get().accentOverride, [theme]: hex } })
+    get().persistSettings()
+  },
+
+  // ---------- Recovery notice / command palette ----------
+  recoveryNotice: null,
+  clearRecoveryNotice: () => set({ recoveryNotice: null }),
+  paletteOpen: false,
+  togglePalette: () => set({ paletteOpen: !get().paletteOpen }),
+
+  // ---------- Session editing ----------
+  updateSession: async (id, patch) => {
+    const prev = get().sessions
+    const clean = { ...patch, id }
+    set({ sessions: prev.map(s => (s.id === id ? { ...s, ...clean } : s)) })
+    try {
+      await dbUpdateSession(id, patch)
+      await get().refreshStats()
+      set({ sessions: await dbGetSessions() })
+    } catch (e) {
+      console.error('Failed to update session:', e)
+      set({ sessions: prev })
+    }
+  }
 }))

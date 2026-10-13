@@ -54,3 +54,11 @@ ehthumbs.db
 *.tsbuildinfo
 .cache/
 .temp/
+
+# Dev scratch (local test harness / ad-hoc build notes — never shipped)
+harness.html
+src/harness.tsx
+build-all.txt
+
+# Note: vid/blackhole.mp4 is imported by src/components/Background.tsx
+# (live wallpaper) and MUST stay tracked — do not ignore vid/ or *.mp4.
