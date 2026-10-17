@@ -395,12 +395,14 @@ export default function Analytics() {
             return
           }
           const catEntries = Object.entries(
-            monthSessions.reduce<Record<string, { duration: number; notes: string[] }>>((acc, s) => {
-              if (!acc[s.category]) acc[s.category] = { duration: 0, notes: [] }
-              acc[s.category].duration += s.duration
-              if (s.note) acc[s.category].notes.push(s.note)
-              return acc
-            }, {})
+            monthSessions
+              .filter(s => s.date === date)
+              .reduce<Record<string, { duration: number; notes: string[] }>>((acc, s) => {
+                if (!acc[s.category]) acc[s.category] = { duration: 0, notes: [] }
+                acc[s.category].duration += s.duration
+                if (s.note) acc[s.category].notes.push(s.note)
+                return acc
+              }, {})
           )
           const details = catEntries
             .map(([cat, data]) => `${cat}: ${formatDuration(data.duration)}`)

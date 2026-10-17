@@ -2,7 +2,7 @@
   <img src="build/icon.ico" alt="BlackHole Focus" width="128" height="128" />
 </p>
 
-<h1 align="center">BlackHole Focus <i>V1.3</i></h1>
+<h1 align="center">BlackHole Focus <i>V1.3.1</i></h1>
 
 <p align="center">
   Personal focus tracker for Windows<br/>
