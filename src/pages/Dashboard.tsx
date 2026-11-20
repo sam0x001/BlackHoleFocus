@@ -42,7 +42,7 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col px-8 min-w-0 overflow-hidden">
         <header className="pt-7 shrink-0">
           <p className="text-[11px] tracking-[0.34em] uppercase text-white/35">Today</p>
-          <h2 className="text-[28px] leading-tight font-semibold tracking-tight mt-1">{todayLabel}</h2>
+          <h2 className="text-[28px] leading-tight font-display font-semibold tracking-tight mt-1">{todayLabel}</h2>
         </header>
 
         {/* Hero */}
@@ -109,9 +109,9 @@ export default function Dashboard() {
       {/* Right panel — animated slide in/out */}
       <div
         className={`bh-right-panel ${panelOpen ? '' : 'is-closed'}`}
-        style={{ '--bh-panel-w': '428px' } as React.CSSProperties}
+        style={{ '--bh-panel-w': '336px' } as React.CSSProperties}
       >
-        <div className="bh-right-panel-body flex flex-col gap-4">
+        <div className="bh-right-panel-body flex flex-col gap-3">
           <div className="flex justify-end -mb-1">
             <button
               onClick={togglePanel}
@@ -123,9 +123,9 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="glass-strong rounded-2xl p-5">
+          <div className="glass-strong rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3 gap-2">
-              <h3 className="text-sm text-white/50 tracking-wide">Daily Goal</h3>
+              <h3 className="text-xs uppercase tracking-[0.14em] text-white/40">Daily Goal</h3>
               {goalSeconds > 0 && (
                 <span className="text-xs text-white/40 tabular-nums shrink-0">
                   {formatDurationShort(Math.min(todayTotal, goalSeconds))} / {dailyGoalMinutes}m
@@ -140,7 +140,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="flex items-baseline justify-between mb-2 gap-2">
-                  <span className="text-2xl font-semibold tabular-nums">{goalPct}%</span>
+                  <span className="text-xl font-semibold tabular-nums">{goalPct}%</span>
                   <span className="text-[11px] text-white/35 shrink-0">
                     {goalLeft > 0 ? `${formatDurationShort(goalLeft)} left` : 'Goal reached'}
                   </span>
@@ -155,8 +155,8 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="glass-strong rounded-2xl p-5">
-            <h3 className="text-sm text-white/50 mb-4 tracking-wide">Today Breakdown</h3>
+          <div className="glass-strong rounded-2xl p-4">
+            <h3 className="text-xs uppercase tracking-[0.14em] text-white/40 mb-3">Today Breakdown</h3>
             {Object.keys(todayByCategory).length === 0 ? (
               <p className="text-white/30 text-sm text-center py-4">No sessions yet</p>
             ) : (
@@ -182,11 +182,11 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="glass-strong rounded-2xl p-5">
-            <h3 className="text-sm text-white/50 mb-3 tracking-wide">Recent Sessions</h3>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+          <div className="glass-strong rounded-2xl p-4">
+            <h3 className="text-xs uppercase tracking-[0.14em] text-white/40 mb-2.5">Recent Sessions</h3>
+            <div className="space-y-1 max-h-36 overflow-y-auto">
               {sessions.slice(0, 8).map(s => (
-                <div key={s.id} className="flex justify-between items-center gap-3 text-sm py-2 border-b border-white/5 last:border-0">
+                <div key={s.id} className="flex justify-between items-center gap-3 text-sm py-1.5 border-b border-white/5 last:border-0">
                   <span className="text-white/70 truncate min-w-0">{s.category}</span>
                   <span className="text-white/35 text-xs shrink-0">{formatDurationShort(s.duration)}</span>
                 </div>

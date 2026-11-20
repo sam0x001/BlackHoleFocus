@@ -19,15 +19,12 @@ export default function Sidebar() {
   const { currentView, setView, theme, setTheme, sidebarOpen, toggleSidebar } = useStore()
   const palette = usePalette()
 
-  const activeStyle = palette.navActive
-
   return (
     <aside
       className={`sidebar-rail shrink-0 flex flex-col glass border border-white/10 rounded-2xl z-20 relative overflow-hidden shadow-[0_12px_36px_-12px_rgba(0,0,0,0.7)] my-2 ml-2 mr-2 ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
       aria-hidden={!sidebarOpen}
     >
-      <div className="px-4 py-4 border-b border-white/10 flex items-center justify-between gap-2 min-w-[13rem]"
-        >
+      <div className="px-4 py-4 border-b border-white/10 flex items-center justify-between gap-2 min-w-[13rem]">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <img
             src={bhLogo}
@@ -59,7 +56,7 @@ export default function Sidebar() {
             onClick={() => setView(item.id)}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-300 ease-in-out no-drag
               ${currentView === item.id
-                ? `${activeStyle} border`
+                ? 'bh-nav-active border'
                 : 'text-white/55 hover:bg-white/5 hover:text-white/90'
               }`}
           >
@@ -68,8 +65,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-white/10 min-w-[13rem]"
-        >
+      <div className="p-3 border-t border-white/10 min-w-[13rem]">
         <p className="text-[10px] text-white/30 mb-2 px-1 tracking-wide">THEME</p>
         <div className="flex gap-1.5">
           {(['void', 'pulse', 'neon'] as const).map(t => (

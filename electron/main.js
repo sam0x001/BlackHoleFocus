@@ -98,10 +98,16 @@ function writeJSON(name, data) {
 }
 
 // ---------- Window bounds ----------
+// The UI is a fixed desktop layout (rail + content + side panel), so it needs a
+// floor: below this the panels start colliding and the timer gets squeezed.
+const MIN_WINDOW_WIDTH = 1040
+const MIN_WINDOW_HEIGHT = 700
+
 function loadWindowBounds() {
   const b = readJSON('window-bounds.json', null)
   if (!b || !Number.isFinite(b.width) || !Number.isFinite(b.height)) return null
-  if (b.width < 1000 || b.height < 650) return null
+  // Bounds saved by an older build may be far smaller than the layout allows.
+  if (b.width < MIN_WINDOW_WIDTH || b.height < MIN_WINDOW_HEIGHT) return null
   return b
 }
 
@@ -292,8 +298,10 @@ function createWindow() {
     height: savedBounds ? savedBounds.height : 800,
     x: savedBounds && Number.isFinite(savedBounds.x) ? savedBounds.x : undefined,
     y: savedBounds && Number.isFinite(savedBounds.y) ? savedBounds.y : undefined,
-    minWidth: 1000,
-    minHeight: 650,
+    // Content floor: keeps the rail, the timer and the side panel from
+    // overlapping when the window is dragged small.
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: '#050508',
     frame: false,
     titleBarStyle: 'hidden',

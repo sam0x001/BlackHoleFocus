@@ -528,6 +528,9 @@ export const useStore = create<AppState>()((set, get) => ({
         if (timerMode === 'pomodoro' && s.phase === 'focus') {
           // Focus block done → record it, then roll into the break countdown
           get().commitSession(countdownTarget)
+          // The note belonged to the block that just ended — don't carry it into
+          // every later cycle.
+          set({ sessionNote: '' })
           const cycle = s.cycleCount + 1
           const p = s.pomodoro
           const isLong = cycle % Math.max(1, p.longEvery) === 0

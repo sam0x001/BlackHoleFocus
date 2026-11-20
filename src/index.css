@@ -8,7 +8,8 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: 'Inter', system-ui, sans-serif;
+  /* Self-hosted variable font (see main.tsx) — never falls back to a network fetch */
+  font-family: 'Manrope Variable', 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: #050508;
   color: #f4f4f5;
 }
@@ -56,7 +57,7 @@ html, body, #root {
 }
 
 .font-display {
-  font-family: 'Orbitron', 'Inter', system-ui, sans-serif;
+  font-family: 'Space Grotesk Variable', 'Manrope Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Dark theme for native HTML inputs */
@@ -124,7 +125,7 @@ main, aside {
   transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease;
 }
 
-/* ---- Sidebar show / hide ---- */
+/* ---- Sidebar show / hide (desktop rail) ---- */
 .sidebar-rail {
   width: 13rem;
   visibility: visible;
@@ -142,6 +143,13 @@ main, aside {
 }
 .sidebar-closed > * {
   opacity: 0;
+}
+
+/* ---- Active nav item, driven by the accent variables ---- */
+.bh-nav-active {
+  background: rgba(var(--bh-accent), 0.12);
+  border-color: rgba(var(--bh-accent), 0.28);
+  color: rgb(var(--bh-accent-soft));
 }
 
 /* ---- Break Time (rest day) badge + chip ---- */
@@ -178,6 +186,10 @@ main, aside {
 /* ---- Theme accent via CSS variables (set by applyThemeVariables) ---- */
 :root {
   --bh-accent: 159, 212, 255;
+  --bh-accent-solid: #9fd4ff;
+  --bh-accent-deep-solid: #4d9fd6;
+  --bh-accent-soft: 220, 238, 255;
+  --bh-accent-soft-solid: #dceeff;
 }
 .glass-button:focus-visible {
   border-color: rgba(var(--bh-accent), 0.45);
@@ -201,7 +213,30 @@ main, aside {
   animation: bh-menu-reveal 0.28s ease-out 0.3s both;
 }
 
-/* ---- Right panel show / hide (Dashboard + Focus Mode) ----
+/* ---- Wavy timeline (Focus Mode countdown / pomodoro) ----
+   The dashes travel along the wave to show the timer is alive, and the head
+   marker breathes. Both are disabled for reduced-motion users. */
+@keyframes bh-wave-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -24; }
+}
+.bh-wave-flow {
+  animation: bh-wave-flow 1.6s linear infinite;
+}
+@keyframes bh-wave-head {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.22); opacity: 0.85; }
+}
+.bh-wave-head {
+  animation: bh-wave-head 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bh-wave-flow, .bh-wave-head { animation: none; }
+}
+
+/* ---- Right panel (Dashboard + Focus Mode) ----
    The container width slides (like the sidebar); the body fades/slides out
    and the collapsed rail cross-fades in. */
 .bh-right-panel {
@@ -264,4 +299,3 @@ main, aside {
 @media (prefers-reduced-motion: reduce) {
   .bh-rise { animation: none; }
 }
-

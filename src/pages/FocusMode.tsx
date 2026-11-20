@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useStore, TimerMode } from '../store/useStore'
 import { formatClock } from '../lib/format'
+import { usePalette } from '../lib/theme'
+import WavyTimeline from '../components/WavyTimeline'
 
 const PRESET_TIMES = [
   { label: '15m', sec: 15 * 60 },
@@ -15,14 +17,17 @@ const TIMER_MODES: { id: TimerMode; label: string; desc: string }[] = [
   { id: 'pomodoro', label: 'Pomodoro', desc: 'Focus + break cycles' },
 ]
 
+const BREAK_TONE = { accent: '#34d399', deep: '#059669', soft: '#a7f3d0' }
+
 export default function FocusMode() {
   const {
     isFocusing, currentCategory, elapsedSeconds, remainingSeconds, timerMode,
     setTimerMode, countdownTarget, setCountdownTarget,
     pauseFocus, resumeFocus, stopFocus, startFocus, categories, tasks,
-    addTask, toggleTask, removeTask, theme, setView, sessionNote, setSessionNote,
+    addTask, toggleTask, removeTask, setView, sessionNote, setSessionNote,
     pomodoro, setPomodoro, phase, cycleCount, skipBreak
   } = useStore()
+  const palette = usePalette()
 
   const [newTask, setNewTask] = useState('')
   const [customMinutes, setCustomMinutes] = useState(String(Math.max(1, Math.floor(countdownTarget / 60))))
@@ -60,7 +65,7 @@ export default function FocusMode() {
         <div className="glass-strong rounded-2xl p-5 w-full max-w-md">
           <div className="flex items-center justify-between mb-3 gap-3">
             <h3 className="text-sm text-white/50 tracking-wide">Timer</h3>
-            <span className="text-[11px] text-white/30">
+            <span className="text-[11px] text-white/30 text-right">
               {timerMode === 'countdown'
                 ? `${Math.floor(countdownTarget / 60)} min session`
                 : timerMode === 'pomodoro'
@@ -190,15 +195,17 @@ export default function FocusMode() {
   }
 
   const isPomodoro = timerMode === 'pomodoro'
-  const pomodoroTarget = countdownTarget > 0 ? countdownTarget : 1
-  const pomodoroProgress = timerMode === 'stopwatch' ? 0 : Math.min(1, Math.max(0, 1 - remainingSeconds / pomodoroTarget))
-  const RING_R = 128
-  const RING_C = 2 * Math.PI * RING_R
+  const hasTarget = timerMode !== 'stopwatch'
+  // Progress of the linear timeline (0 at the start of the block, 1 when done).
+  // Stopwatch has no target, so the timeline is drawn unfilled and just flows.
+  const target = countdownTarget > 0 ? countdownTarget : 1
+  const progress = hasTarget ? Math.min(1, Math.max(0, 1 - remainingSeconds / target)) : null
+  const tone = onBreak ? BREAK_TONE : { accent: palette.accent, deep: palette.accentDeep, soft: palette.accentSoft }
 
   return (
     <div className="h-full flex">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <p className="text-white/40 text-sm mb-1 tracking-[0.2em] uppercase text-center">{currentCategory}</p>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6 min-w-0">
+        <p className="text-white/40 text-sm mb-1 tracking-[0.2em] uppercase text-center break-words max-w-full">{currentCategory}</p>
         <p className="text-white/25 text-xs mb-1 tracking-wide text-center">
           {isPomodoro
             ? onBreak
@@ -210,40 +217,38 @@ export default function FocusMode() {
           <p className="text-emerald-300/70 text-xs mb-3 tracking-wide text-center">Rest — not recorded</p>
         )}
         {!onBreak && <div className="mb-3" />}
-        <div className="relative flex items-center justify-center mb-8" style={{ width: 300, height: 300 }}>
-          {timerMode !== 'stopwatch' && (
-            <svg width="300" height="300" className="absolute inset-0 -rotate-90">
-              <circle cx="150" cy="150" r={RING_R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
-              <circle
-                cx="150" cy="150" r={RING_R} fill="none"
-                stroke={onBreak ? '#34d399' : 'var(--bh-accent, #9fd4ff)'}
-                strokeWidth="5" strokeLinecap="round"
-                strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - pomodoroProgress)}
-                style={{ transition: 'stroke-dashoffset 1s linear' }}
-              />
-            </svg>
-          )}
-          <div
-            className="text-7xl font-semibold tracking-tighter tabular-nums"
-            style={{
-              textShadow: theme === 'void'
-                ? '0 0 50px rgba(56,189,248,0.35)'
-                : theme === 'pulse'
-                ? '0 0 50px rgba(168,85,247,0.35)'
-                : '0 0 50px rgba(59,130,246,0.35)'
-            }}
-          >
-            {formatClock(displayTime)}
-          </div>
+
+        <div
+          className="font-display text-7xl font-semibold tracking-tighter tabular-nums"
+          style={{ textShadow: `0 0 50px ${onBreak ? 'rgba(52,211,153,0.35)' : palette.glow}` }}
+        >
+          {formatClock(displayTime)}
         </div>
+
+        {/* Wavy linear timeline at the bottom of the timer — replaces the old
+            progress ring, which could sit at the wrong value and vanish
+            entirely when its stroke colour resolved to an invalid value. */}
+        <div className="w-full max-w-[560px] mt-3">
+          <WavyTimeline
+            progress={progress}
+            accent={tone.accent}
+            accentDeep={tone.deep}
+            accentSoft={tone.soft}
+            running={isFocusing}
+            labelLeft={formatClock(elapsedSeconds)}
+            labelRight={hasTarget ? formatClock(countdownTarget) : 'no limit'}
+            ariaLabel={`${isPomodoro ? (onBreak ? 'Break' : 'Focus') : 'Session'} timeline`}
+          />
+        </div>
+
         <input
           value={sessionNote}
           onChange={e => setSessionNote(e.target.value)}
           placeholder="Session note (saved with this session)…"
           aria-label="Session note"
-          className="w-80 max-w-full mb-6 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-center outline-none focus:border-white/25 placeholder:text-white/25"
+          className="w-full max-w-sm mt-6 mb-6 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-center outline-none focus:border-white/25 placeholder:text-white/25"
         />
-        <div className="flex gap-3">
+        <div className="flex justify-center gap-3">
           {isFocusing ? (
             <button onClick={pauseFocus} className="glass-button text-sm min-w-[110px]">Pause</button>
           ) : (
@@ -258,15 +263,15 @@ export default function FocusMode() {
             End Session
           </button>
         </div>
-        <p className="text-white/25 text-xs mt-6 tracking-wide">Space — pause/resume · Esc — show menu</p>
+        <p className="text-white/25 text-xs mt-6 tracking-wide text-center">Space — pause/resume · Esc — show menu</p>
       </div>
 
       <div
         className={`bh-right-panel ${panelOpen ? '' : 'is-closed'}`}
-        style={{ '--bh-panel-w': '368px' } as React.CSSProperties}
+        style={{ '--bh-panel-w': '340px' } as React.CSSProperties}
       >
         <div className="bh-right-panel-body flex flex-col">
-          <div className="glass-strong rounded-2xl flex-1 flex flex-col p-5 min-h-0">
+          <div className="glass-strong rounded-2xl flex-1 flex flex-col p-4 min-h-0">
             <div className="flex items-center justify-between mb-4 gap-2">
               <h3 className="text-sm text-white/50 tracking-wide">Tasks</h3>
               <button

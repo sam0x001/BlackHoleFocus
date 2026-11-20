@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore'
 import { localDateString, shiftDateString, daysBetween } from '../lib/date'
 import { variance, stdDev, mean, median, trendPerDay, currentMonthDates } from '../lib/stats'
 import { formatDuration, formatDurationShort, monthLabel } from '../lib/format'
+import { usePalette } from '../lib/theme'
 import Toast from '../components/Toast'
 import DatePicker from '../components/DatePicker'
 import ExportModal from '../components/ExportModal'
@@ -28,6 +29,8 @@ export default function Analytics() {
     sessions, theme, todayTotal, todayByCategory,
     restDays, removeRestDay, toggleRestDay, deleteSession, updateSession, categories
   } = useStore()
+  // Active palette (honours the Settings accent override) for charts + bars
+  const palette = usePalette()
   const [toast, setToast] = useState<string | null>(null)
   const [restPick, setRestPick] = useState(() => localDateString())
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -338,12 +341,8 @@ export default function Analytics() {
     return null
   }, [restDays, secondsByDate])
 
-  const progressGradient =
-    theme === 'void'
-      ? 'linear-gradient(90deg, #38bdf8, #7dd3fc)'
-      : theme === 'pulse'
-      ? 'linear-gradient(90deg, #a855f7, #c084fc)'
-      : 'linear-gradient(90deg, #3b82f6, #60a5fa)'
+  // Palette-driven so a custom accent recolours today's bars too
+  const progressGradient = palette.gradient
 
   const exportExcel = async (mode: 'summary' | 'detailed') => {
     const ExcelJS = (await import('exceljs')).default
@@ -496,7 +495,7 @@ export default function Analytics() {
     <div className="h-full p-8 overflow-y-auto">
       <div className="flex items-center justify-between mb-6 gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-wide">Analytics</h2>
+          <h2 className="text-2xl font-display font-semibold tracking-wide">Analytics</h2>
           <p className="text-white/40 text-sm mt-1">{sessions.length} sessions recorded</p>
         </div>
         <button onClick={() => setExportModalOpen(true)} className="glass-button text-sm shrink-0">Export Excel</button>
@@ -580,6 +579,8 @@ export default function Analytics() {
           points={chartPoints}
           daysInMonth={chartDaysInMonth}
           theme={theme}
+          accent={palette.accent}
+          accentSoft={palette.accentSoft}
           mode={chartMode}
           onDayRightClick={handleChartDayRightClick}
           onRangeSelect={handleChartRangeSelect}
@@ -731,7 +732,7 @@ export default function Analytics() {
           <div className="flex items-center gap-3 text-[10px] text-white/30">
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-white/10 inline-block" /> idle</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/70 inline-block" /> break</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--bh-accent, #9fd4ff)' }} /> focus</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'var(--bh-accent-solid, #9fd4ff)' }} /> focus</span>
           </div>
         </div>
         <div className="flex gap-[3px] overflow-x-auto pb-1">
@@ -771,26 +772,29 @@ export default function Analytics() {
       <div className="glass-strong rounded-2xl p-5 mb-5 transition-all duration-300">
         <h3 className="text-sm text-white/50 mb-1 tracking-wide">Focus rhythm</h3>
         <p className="text-[10px] text-white/25 mb-4">Sessions grouped by start hour — break days excluded</p>
-        {(() => {
+        {hourlyTotals.every(secs => secs <= 0) ? (
+          <p className="text-white/30 text-sm text-center py-6">No sessions recorded yet</p>
+        ) : (() => {
           const max = Math.max(1, ...hourlyTotals)
           return (
             <div className="flex items-end gap-1 h-28">
-              {hourlyTotals.map((secs, h) => (
-                <div key={h} className="flex-1 flex flex-col items-center justify-end h-full gap-1 group relative">
-                  <span className="absolute -top-1 hidden group-hover:block text-[10px] text-white/70 bg-black/70 rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap z-10">
-                    {String(h).padStart(2, '0')}:00 · {formatDurationShort(secs)}
-                  </span>
-                  <div
-                    className="w-full rounded-sm transition-all"
-                    style={{
-                      height: `${Math.max(secs > 0 ? 4 : 2, (secs / max) * 100)}%`,
-                      background: secs > 0 ? 'var(--bh-accent, #9fd4ff)' : 'rgba(255,255,255,0.08)',
-                      opacity: secs > 0 ? 0.85 : 1
-                    }}
-                  />
-                  <span className={`text-[9px] tabular-nums ${h % 3 === 0 ? 'text-white/30' : 'text-transparent'}`}>{h}</span>
-                </div>
-              ))}
+                {hourlyTotals.map((secs, h) => (
+                  <div key={h} className="flex-1 flex flex-col items-center justify-end h-full gap-1 group relative">
+                    <span className="absolute -top-1 hidden group-hover:block text-[10px] text-white/70 bg-black/70 rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap z-10">
+                      {String(h).padStart(2, '0')}:00 · {formatDurationShort(secs)}
+                    </span>
+                    <div
+                      className="w-full rounded-sm transition-all"
+                      style={{
+                        height: `${Math.max(secs > 0 ? 4 : 2, (secs / max) * 100)}%`,
+                        // --bh-accent is an "r, g, b" triplet, so it MUST go through rgba() —
+                        // using it as a plain colour made every bar invisible.
+                        background: secs > 0 ? 'rgba(var(--bh-accent), 0.85)' : 'rgba(255,255,255,0.08)'
+                      }}
+                    />
+                    <span className={`text-[9px] tabular-nums ${h % 3 === 0 ? 'text-white/30' : 'text-transparent'}`}>{h}</span>
+                  </div>
+                ))}
             </div>
           )
         })()}

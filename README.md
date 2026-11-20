@@ -2,7 +2,7 @@
   <img src="build/icon.ico" alt="BlackHole Focus" width="128" height="128" />
 </p>
 
-<h1 align="center">BlackHole Focus <i>V1.3.1</i></h1>
+<h1 align="center">BlackHole Focus <i>V1.4.0</i></h1>
 
 <p align="center">
   Personal focus tracker for Windows<br/>
@@ -33,8 +33,8 @@ All data stays on your machine. No account. No server.
 ### Timer & sessions
 
 - **Stopwatch** — counts up until you end the session  
-- **Countdown** — presets (15 / 25 / 45 / 60 min) or custom minutes; beeps at zero  
-- **Pomodoro** — focus/break cycles with fully configurable focus, short break, long break and “long break every N cycles”. The live session shows a **FOCUS · CYCLE n** / **BREAK · CYCLE n** badge, a progress ring, an emerald “Rest — not recorded” line and a **Skip Break** button; break time is never counted as focus  
+- **Countdown** — presets (15 / 25 / 45 / 60 min) or custom minutes, drawn as an animated wavy timeline under the clock; beeps at zero  
+- **Pomodoro** — focus/break cycles with fully configurable focus, short break, long break and “long break every N cycles”. The live session shows a **FOCUS · CYCLE n** / **BREAK · CYCLE n** badge, the animated wavy timeline, an emerald “Rest — not recorded” line and a **Skip Break** button; break time is never counted as focus  
 - **Session-end alerts** — the classic *Bip-Bip* chime plus a Windows notification (also when the app sits in the tray); toggle in Settings → App  
 - **Tasks** — add, complete, delete during Focus Mode  
 - **Global hotkey** — `Ctrl+Alt+F` pauses / resumes the running session from anywhere  
@@ -44,7 +44,7 @@ All data stays on your machine. No account. No server.
 ### Organisation & insight
 
 - **Categories** — add or remove categories in Settings with an arbitrary colour  
-- **Themes** — Void, Pulse, Neon (optional background image per theme) + a **per-theme accent colour**: 8 presets, a custom picker, or Reset  
+- **Themes** — Void, Pulse, Neon (optional background image per theme) + a **per-theme accent colour**: 8 presets, a custom picker, or Reset — the accent drives the nav highlight, charts, bars and the Focus timer glow, and very dark picks are lifted automatically so text stays readable  
 - **Command palette** — `Ctrl+K` opens a quick launcher: jump to any view, start a focus session by category, toggle today's Break Time, or end the running session  
 - **Collapsible sidebar** — slide it away with the collapse button; bring it back with the **Menu** button (your choice is remembered)  
 - **Break Time (rest days)** — mark rest days (from the Analytics card, the command palette, or a right-click on any chart day). Break days are excluded from every statistic, chart and export and are always labelled “Break Time”  
@@ -52,7 +52,7 @@ All data stays on your machine. No account. No server.
 - **Range statistics** — Total, Mean / day, **Median / day**, **Trend (±/day)**, Std deviation, Variance, days with data and break days — plus a **▲/▼ % vs previous period** chip that compares the same-length period immediately before  
 - **Drag-to-select range** — drag across the monthly chart to set the Range statistics *From* / *To* in one gesture  
 - **Year in focus** — a GitHub-style heatmap of every day of the chart's year (accent intensity = focus time, emerald = break; right-click a cell to toggle Break Time)  
-- **Focus rhythm** — 24-hour histogram showing *when* in the day you focus, with hover tooltips  
+- **Focus rhythm** — 24-hour histogram showing *when* in the day you focus, with hover tooltips and a quiet empty state when the day has no sessions yet  
 - **Smart break suggestion** — if no Break Time has been marked for 10+ days, Analytics suggests the weekday with your lightest focus load and offers a one-click “Mark … as break” (with a Dismiss)  
 - **History, paginated** — 30 day-groups per page with **Newer / Older** paging, plus “jump to date” and range filters  
 - **Inline session editing** — press **Edit** on any history row to change duration, category or note in place  
@@ -68,6 +68,18 @@ All data stays on your machine. No account. No server.
 - **Corrupt-line repair** — any unreadable line in `sessions.ndjson` is preserved in `sessions.corrupt.ndjson` instead of being dropped silently  
 - **Midnight split & merge** — a session that crosses local midnight is split into two days; overlapping same-category entries are merged on save  
 - **Autostart** and **live black-hole wallpaper** toggles  
+
+---
+
+## What's new in 1.4.0
+
+- **New typefaces** — Manrope for the UI and Space Grotesk for headings and the timer. Both are self-hosted variable fonts, so they render identically offline and in the installed app
+- **Wavy timeline** — the countdown / Pomodoro progress ring is gone; an animated sine timeline under the clock now shows elapsed and remaining time (Stopwatch shows the same wave flowing, unfilled), with reduced-motion support
+- **Accent colour actually applies everywhere** — nav highlight, Today bars, monthly chart, Focus timer glow and the rhythm chart; near-black accent picks are lifted to stay legible
+- **Analytics fixes** — the Focus rhythm histogram rendered empty bars and the heatmap legend swatch was invisible; both now paint with the active accent
+- **Roomier Dashboard** — slimmer side panel and tighter cards, so the timer block owns the centre of the window
+- **Window floor** — the window can be resized and remembers its size, with a **1040 × 700** minimum so the rail, timer and side panel never collide. The Android/Capacitor build has been removed; the project is Windows-only
+- **Fixes** — a Pomodoro session note no longer carries into the next cycle, and the Focus Mode task panel no longer collapses onto the timer
 
 ---
 
@@ -104,12 +116,14 @@ blackhole-focus/
 ├── src/
 │   ├── assets/            # Bundled images (bh-logo.png, blackhole.jpg)
 │   ├── components/        # Sidebar, Background, TitleBar, MonthChart,
-│   │                      # SessionEditRow, Toast, DatePicker, MonthPicker,
-│   │                      # ColorPicker, ExportModal, CloseSessionModal
+│   │                      # WavyTimeline, SessionEditRow, Toast, DatePicker,
+│   │                      # MonthPicker, ColorPicker, ExportModal,
+│   │                      # CloseSessionModal
 │   ├── lib/               # Helpers: date, stats, format, theme (palettes)
 │   ├── pages/             # Dashboard, FocusMode, Analytics, Settings
 │   ├── store/             # Zustand state: timer, Pomodoro, settings, journal
-│   ├── db/                # Calls Electron IPC for read/write
+│   ├── db/                # Electron IPC for read/write (localStorage
+│   │                      # fallback for the browser preview)
 │   ├── App.tsx            # Shell: views, shortcuts, palette, tray/close wiring
 │   ├── CommandPalette.tsx # Ctrl+K quick actions overlay
 │   ├── main.tsx           # Entry point
@@ -234,6 +248,8 @@ Files inside `data/`:
 
 Drag the top bar to move the window. Use the collapse button on the sidebar (or the **Menu** button once hidden) to show / hide the sidebar.
 
+The window is freely resizable up to your screen size and remembers its size and position between launches. The minimum is **1040 × 700** — the smallest size where the sidebar, timer and side panel still fit without overlapping.
+
 ### Keyboard shortcuts
 
 | Keys | Action |
@@ -276,6 +292,9 @@ Windows may show SmartScreen for unsigned apps → *More info* → *Run anyway*.
 - Tailwind CSS  
 - Zustand  
 - ExcelJS  
+- Fonts: **Manrope Variable** (UI) + **Space Grotesk Variable** (display) — self-hosted
+  through Fontsource and bundled by Vite, so they load offline and inside the
+  packaged Windows app (no CDN, no CSP allowlist)
 
 ---
 

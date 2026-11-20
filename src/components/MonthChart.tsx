@@ -17,6 +17,10 @@ interface Props {
   points: DayPoint[]
   daysInMonth: number
   theme: Theme
+  /** Active accent hex — honours the per-theme accent override. */
+  accent?: string
+  /** Near-white accent tint for soft strokes / markers. */
+  accentSoft?: string
   mode: ChartMode
   /**
    * Right-click handler for a day column — only fired in bar mode.
@@ -133,7 +137,16 @@ function buildSmoothPath(points: XY[]): string {
   return out.join(' ')
 }
 
-export default function MonthChart({ points, daysInMonth, theme, mode, onDayRightClick, onRangeSelect }: Props) {
+export default function MonthChart({
+  points,
+  daysInMonth,
+  theme,
+  accent: accentProp,
+  accentSoft: accentSoftProp,
+  mode,
+  onDayRightClick,
+  onRangeSelect
+}: Props) {
   // Drag-to-select state — declared before the empty-month early return so the
   // hook order never changes between renders.
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -209,8 +222,8 @@ export default function MonthChart({ points, daysInMonth, theme, mode, onDayRigh
   for (let v = 0; v <= yMax + 1e-9; v += step) ticks.push(v)
 
   const barWidth = Math.max(2, Math.min(26, slot * 0.55))
-  const accent = ACCENT[theme]
-  const accentSoft = ACCENT_SOFT[theme]
+  const accent = accentProp || ACCENT[theme]
+  const accentSoft = accentSoftProp || ACCENT_SOFT[theme]
 
   const linePath = positive
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${xAt(p.day).toFixed(2)} ${yAt(hours(p.seconds)).toFixed(2)}`)

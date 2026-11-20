@@ -32,8 +32,8 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Orbitron', 'Inter', 'sans-serif'],
+        sans: ['Manrope Variable', 'Manrope', 'system-ui', 'sans-serif'],
+        display: ['Space Grotesk Variable', 'Manrope Variable', 'sans-serif'],
       },
       backdropBlur: {
         xs: '2px',

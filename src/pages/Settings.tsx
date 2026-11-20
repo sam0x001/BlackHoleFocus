@@ -62,7 +62,7 @@ export default function Settings() {
 
   return (
     <div className="h-full p-8 overflow-y-auto">
-      <h2 className="text-2xl font-semibold tracking-wide mb-8">Settings</h2>
+      <h2 className="text-2xl font-display font-semibold tracking-wide mb-8">Settings</h2>
 
       <section className="mb-10">
         <h3 className="text-sm text-white/45 mb-3 tracking-wide">Storage</h3>
@@ -418,7 +418,7 @@ export default function Settings() {
       </section>
 
       <div className="mt-12 text-center space-y-2">
-        <p className="text-white/20 text-xs tracking-wide">BlackHole Focus v1.3.1</p>
+        <p className="text-white/20 text-xs tracking-wide">BlackHole Focus v1.4.0</p>
         <p className="text-white/15 text-[11px]">Developer: <span className="text-white/30">Sam</span></p>
         <a
           href="https://github.com/sam0x001/BlackHoleFocus"
